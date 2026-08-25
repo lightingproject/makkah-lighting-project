@@ -59,20 +59,39 @@
         {% endif %}
     </div>
     
-    <!-- رفع ملف الـ Excel وتحميل رموز QR -->
-    <div style="background: #f1f8f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-        <div style="flex: 1; min-width: 250px;">
-            <h4 style="margin-bottom: 10px;">📂 رفع أو تحديث قاعدة بيانات الأعمدة عبر ملف Excel</h4>
-            <form method="POST" enctype="multipart/form-data" style="margin-top: 5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+    <!-- قسم إدارة ملفات الـ Excel ورمز الـ QR -->
+    <div style="background: #f1f8f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 15px;">
+        
+        <!-- 1. التحديث الشامل (مسح القديم ووضع الجديد) -->
+        <div style="background: #fff; padding: 12px; border-radius: 6px; border: 1px solid #d4edda;">
+            <h4 style="margin-bottom: 8px; color: #dc3545; font-size: 1.1rem;">📂 التحديث الشامل (استبدال وحذف البيانات القديمة)</h4>
+            <p style="font-size: 0.85rem; color: #666; margin-bottom: 8px;">يقوم هذا الخيار بمسح كافة الأعمدة المسجلة حالياً بالكامل واعتماد ملف الأكسل الجديد فقط.</p>
+            <form method="POST" enctype="multipart/form-data" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;" onsubmit="return confirm('تنبيه هام: سيتم مسح جميع البيانات السابقة نهائياً واستبدالها بالملف الجديد. هل أنت متأكد؟');">
                 <input type="hidden" name="action" value="upload_excel">
                 <input type="file" name="excel_file" accept=".xlsx, .xls" required style="flex: 1;">
-                <button type="submit" class="btn btn-success">رفع وتحديث البيانات</button>
+                <button type="submit" class="btn btn-danger">تحديث شامل (استبدال البيانات)</button>
             </form>
         </div>
-        <div>
-            <h4 style="margin-bottom: 10px;">📦 إدارة صور رموز الكيو آر</h4>
-            <a href="{{ url_for('download_all_qrs') }}" class="btn btn-success btn-lg" style="display: inline-block; text-decoration: none;">
-                📥 تحميل كافة أكواد QR (ZIP)
+
+        <!-- 2. إضافة بيانات جديدة (دمج مع القديم دون حذف) -->
+        <div style="background: #fff; padding: 12px; border-radius: 6px; border: 1px solid #c3e6cb;">
+            <h4 style="margin-bottom: 8px; color: #28a745; font-size: 1.1rem;">➕ إضافة بيانات جديدة (دمج مع البيانات السابقة)</h4>
+            <p style="font-size: 0.85rem; color: #666; margin-bottom: 8px;">يقوم هذا الخيار برفع الأعمدة الجديدة وإضافتها بجانب الأعمدة القديمة دون مسح أي بيانات سابقة.</p>
+            <form method="POST" enctype="multipart/form-data" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="hidden" name="action" value="append_excel">
+                <input type="file" name="excel_file" accept=".xlsx, .xls" required style="flex: 1;">
+                <button type="submit" class="btn btn-success">إضافة ودمج البيانات الجديدة</button>
+            </form>
+        </div>
+
+        <!-- 3. إدارة صور رموز الكيو آر -->
+        <div style="background: #fff; padding: 12px; border-radius: 6px; border: 1px solid #bee5eb; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h4 style="margin-bottom: 5px; color: #17a2b8; font-size: 1.1rem;">📦 إدارة صور رموز الكيو آر (QR Code)</h4>
+                <p style="font-size: 0.85rem; color: #666; margin: 0;">يتم توليد كود QR تلقائياً لكل عمود. يمكنك عرض، نسخ، أو تحميل كود أي عمود بشكل مباشر عبر الدخول إلى صفحة تفاصيل العمود في الجدول أدناه.</p>
+            </div>
+            <a href="{{ url_for('download_all_qrs') }}" class="btn btn-primary" style="text-decoration: none; font-size: 0.9rem;">
+                ℹ️ تنبيه حول التحميل
             </a>
         </div>
     </div>
@@ -109,6 +128,7 @@
                     <th>Lamp_Type</th>
                     <th>Pole_Status</th>
                     <th>Location (Lat, Lng)</th>
+                    <th>QR Code</th>
                     <th>الإجراءات</th>
                 </tr>
             </thead>
@@ -130,6 +150,11 @@
                         {% endif %}
                     </td>
                     <td>
+                        <a href="{{ url_for('pole_detail', pole_id=pole.pole_ID) }}" class="btn btn-success" style="padding: 4px 8px; font-size: 0.8rem; text-decoration: none;">
+                            عرض QR
+                        </a>
+                    </td>
+                    <td>
                         <form method="POST" style="display:inline;" onsubmit="return confirm('هل أنت متأكد من الحذف؟');">
                             <input type="hidden" name="action" value="delete_pole">
                             <input type="hidden" name="pole_ID" value="{{ pole.pole_ID }}">
@@ -138,7 +163,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7">لا توجد بيانات حالياً. قم برفع ملف الـ Excel.</td></tr>
+                <tr><td colspan="8">لا توجد بيانات حالياً. قم برفع ملف الـ Excel.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

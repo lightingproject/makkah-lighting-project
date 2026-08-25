@@ -159,7 +159,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-        # استبدال البيانات بالكامل بطريقة آمنة
+        # استبدال البيانات بالكامل بأمان تام
         elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -175,8 +175,11 @@ def dashboard():
                         for col in df.columns:
                             col_lower = col.lower()
                             if any(k in col_lower for k in keywords):
-                                val = row[col]
-                                return str(val).strip() if pd.notna(val) else default
+                                try:
+                                    val = row[col]
+                                    return str(val).strip() if pd.notna(val) else default
+                                except:
+                                    pass
                         return default
 
                     cursor.execute('DELETE FROM poles')
@@ -186,7 +189,6 @@ def dashboard():
                     for _, row in df.iterrows():
                         p_id = get_val(row, ['pole_id', 'id', 'pole', 'العمود', 'رقم'])
                         if not p_id or p_id.lower() == 'nan' or p_id == '':
-                            # إذا كان العمود الأول هو المعرف افتراضياً
                             try:
                                 first_col_val = row[df.columns[0]]
                                 p_id = str(first_col_val).strip() if pd.notna(first_col_val) else ''
@@ -226,7 +228,7 @@ def dashboard():
                     conn.close()
                     return f"<h3 dir='ltr'>EXCEL READ ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
-        # إضافة وتحديث البيانات (دمج)
+        # إضافة وتحديث البيانات (دمج) بأمان تام
         elif action == 'append_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -242,8 +244,11 @@ def dashboard():
                         for col in df.columns:
                             col_lower = col.lower()
                             if any(k in col_lower for k in keywords):
-                                val = row[col]
-                                return str(val).strip() if pd.notna(val) else default
+                                try:
+                                    val = row[col]
+                                    return str(val).strip() if pd.notna(val) else default
+                                except:
+                                    pass
                         return default
 
                     added_count = 0

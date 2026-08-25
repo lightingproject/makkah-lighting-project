@@ -68,11 +68,22 @@ init_db()
 
 def generate_qr_code(pole_id):
     safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
+    # جعل الرابط مختصراً جداً لتجنب تجاوز حد حجم الـ QR الأقصى
     url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
-    img = qrcode.make(url)
+    
+    # استخدام إعدادات افتراضية تمنع خطأ الحجم الأقصى (version 41)
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white")
     qr_path = os.path.join(QR_FOLDER, f"{safe_id}.png")
     img.save(qr_path)
-
 @app.route('/')
 def index():
     if 'admin_logged' in session:

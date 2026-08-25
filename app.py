@@ -147,15 +147,16 @@ def dashboard():
                 
                 try:
                     df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = df.columns.str.strip().str.lower()
                     
-                    id_col = None
+                    # التحويل الآمن لأسماء الأعمدة لمنع أخطاء الـ Float
+                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    
+                    id_col = df.columns[0]
                     for col in df.columns:
-                        if 'pole_id' in col or 'id' in col or 'pole' in col:
+                        col_str = str(col)
+                        if 'pole_id' in col_str or 'id' in col_str or 'pole' in col_str:
                             id_col = col
                             break
-                    if not id_col:
-                        id_col = df.columns[0]
 
                     data_to_insert = []
                     for _, row in df.iterrows():
@@ -193,6 +194,7 @@ def dashboard():
                     import traceback
                     error_details = traceback.format_exc()
                     return f"<h3 dir='ltr'>ERROR DETAILS:</h3><pre>{error_details}</pre>", 500
+
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')
             height = request.form.get('Pole_Height')

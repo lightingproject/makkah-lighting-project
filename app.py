@@ -302,7 +302,7 @@ def pole_detail(pole_id):
     pole = cursor.fetchone()
     conn.close()
 
-    @app.route('/download_all_qrs')
+@app.route('/download_all_qrs')
 def download_all_qrs():
     flash('يرجى تحميل رموز الـ QR الخاصة بكل عمود بشكل فردي من صفحة تفاصيل العمود لتجنب ضغط الخادم.', 'info')
     return redirect(url_for('dashboard'))

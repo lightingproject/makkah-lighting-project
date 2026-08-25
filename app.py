@@ -1,8 +1,8 @@
 import os
+import re
 import qrcode
 import pandas as pd
-import io
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.utils import secure_filename
 import sqlite3
 
@@ -26,15 +26,23 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # جدول الأعمدة يشمل جميع الأعمدة الأساسية والإضافية (Feeder, Panel_Base, Depth, Flange_Size)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS poles (
             pole_ID TEXT PRIMARY KEY,
+            Pole_Name TEXT,
+            lat TEXT,
+            lng TEXT,
             Pole_Height TEXT,
             Fixture_Type TEXT,
             Lamp_Type TEXT,
             Pole_Status TEXT,
-            lat TEXT,
-            lng TEXT,
+            Lamp_Status TEXT,
+            Door TEXT,
+            Feeder TEXT,
+            Panel_Base TEXT,
+            Depth TEXT,
+            Flange_Size TEXT,
             technician_notes TEXT,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -66,12 +74,16 @@ def init_db():
 
 init_db()
 
-def generate_qr_code(pole_ID):
-    safe_id = str(pole_ID).strip().replace('/', '_').replace('\\', '_')
-    # جعل الرابط مختصراً جداً لتجنب تجاوز حد حجم الـ QR الأقصى
-    url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
+def generate_qr_code(pole_id):
+    clean_id = re.sub(r'[^a-zA-Z0-9_\-]', '_', str(pole_id))
+    if not clean_id:
+        clean_id = "pole_default"
+        
+    url = f"https://makkah-lighting-project.onrender.com/pole/{clean_id}"
     
-    # استخدام إعدادات افتراضية تمنع خطأ الحجم الأقصى (version 41)
+    if not os.path.exists(QR_FOLDER):
+        os.makedirs(QR_FOLDER, exist_ok=True)
+        
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -82,8 +94,9 @@ def generate_qr_code(pole_ID):
     qr.make(fit=True)
     
     img = qr.make_image(fill_color="black", back_color="white")
-    qr_path = os.path.join(QR_FOLDER, f"{safe_id}.png")
+    qr_path = os.path.join(QR_FOLDER, f"{clean_id}.png")
     img.save(qr_path)
+
 @app.route('/')
 def index():
     if 'admin_logged' in session:
@@ -147,7 +160,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-        # 1. تحديث جدول جديد (مسح البيانات القديمة بالكامل واعتماد الجديد)
+        # رفع واستبدال البيانات بالكامل
         elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -157,23 +170,30 @@ def dashboard():
                 
                 try:
                     df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    df.columns = [str(c).strip() for c in df.columns]
                     
                     def find_col(keywords):
                         for col in df.columns:
-                            if any(k in col for k in keywords):
+                            col_lower = col.lower()
+                            if any(k in col_lower for k in keywords):
                                 return col
                         return None
 
                     id_col = find_col(['pole_id', 'id', 'pole', 'العمود', 'رقم']) or df.columns[0]
+                    name_col = find_col(['pole_name', 'name', 'اسم'])
+                    lat_col = find_col(['lat', 'latitude', 'عرض'])
+                    lng_col = find_col(['lng', 'long', 'longitude', 'طول'])
                     h_col = find_col(['height', 'pole_height', 'ارتفاع'])
                     f_col = find_col(['fixture', 'fixture_type', 'فانوس', 'كشاف'])
-                    l_col = find_col(['lamp', 'lamp_type', 'لمبة', 'قدرة'])
-                    s_col = find_col(['status', 'pole_status', 'حالة'])
-                    lat_col = find_col(['lat', 'latitude'])
-                    lng_col = find_col(['lng', 'long', 'longitude'])
+                    l_col = find_col(['lamp_type', 'lamp', 'لمبة', 'قدرة'])
+                    s_col = find_col(['pole_status', 'status', 'حالة العمود'])
+                    ls_col = find_col(['lamp_status', 'حالة المصباح'])
+                    door_col = find_col(['door', 'الباب'])
+                    feeder_col = find_col(['feeder', 'مغذى'])
+                    panel_col = find_col(['panel_base', 'panel', 'قاعدة'])
+                    depth_col = find_col(['depth', 'عمق'])
+                    flange_col = find_col(['flange', 'flange_size', 'فلانشة'])
 
-                    # مسح البيانات القديمة تماماً بناءً على طلبك الأول
                     cursor.execute('DELETE FROM poles')
                     conn.commit()
 
@@ -183,28 +203,35 @@ def dashboard():
                         if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
                             
+                        p_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ''
+                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
+                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
                         h = str(row[h_col]).strip() if h_col and pd.notna(row[h_col]) else ''
                         f = str(row[f_col]).strip() if f_col and pd.notna(row[f_col]) else ''
                         l = str(row[l_col]).strip() if l_col and pd.notna(row[l_col]) else ''
                         s = str(row[s_col]).strip() if s_col and pd.notna(row[s_col]) else 'سليم'
-                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
-                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
+                        ls = str(row[ls_col]).strip() if ls_col and pd.notna(row[ls_col]) else 'يعمل'
+                        door = str(row[door_col]).strip() if door_col and pd.notna(row[door_col]) else 'موجود'
+                        feeder = str(row[feeder_col]).strip() if feeder_col and pd.notna(row[feeder_col]) else ''
+                        panel_base = str(row[panel_col]).strip() if panel_col and pd.notna(row[panel_col]) else ''
+                        depth = str(row[depth_col]).strip() if depth_col and pd.notna(row[depth_col]) else ''
+                        flange_size = str(row[flange_col]).strip() if flange_col and pd.notna(row[flange_col]) else ''
                         
-                        data_to_insert.append((p_id, h, f, l, s, lat, lng))
+                        data_to_insert.append((p_id, p_name, lat, lng, h, f, l, s, ls, door, feeder, panel_base, depth, flange_size))
                         generate_qr_code(p_id)
 
                     cursor.executemany('''
-                        INSERT OR REPLACE INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT OR REPLACE INTO poles (pole_ID, Pole_Name, lat, lng, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, Lamp_Status, Door, Feeder, Panel_Base, Depth, Flange_Size)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', data_to_insert)
                     conn.commit()
 
-                    flash(f'تم مسح البيانات القديمة ورفع {len(data_to_insert)} عمود جديد بنجاح!', 'success')
+                    flash(f'تم مسح البيانات القديمة ورفع {len(data_to_insert)} عمود بنجاح!', 'success')
                 except Exception as e:
                     import traceback
                     return f"<h3 dir='ltr'>ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
-        # 2. إضافة بيانات جديدة فوق البيانات القديمة دون حذفها (بناءً على طلبك الثاني)
+        # رفع وإضافة البيانات مع الحفاظ على القديم
         elif action == 'append_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -214,21 +241,29 @@ def dashboard():
                 
                 try:
                     df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    df.columns = [str(c).strip() for c in df.columns]
                     
                     def find_col(keywords):
                         for col in df.columns:
-                            if any(k in col for k in keywords):
+                            col_lower = col.lower()
+                            if any(k in col_lower for k in keywords):
                                 return col
                         return None
 
                     id_col = find_col(['pole_id', 'id', 'pole', 'العمود', 'رقم']) or df.columns[0]
+                    name_col = find_col(['pole_name', 'name', 'اسم'])
+                    lat_col = find_col(['lat', 'latitude', 'عرض'])
+                    lng_col = find_col(['lng', 'long', 'longitude', 'طول'])
                     h_col = find_col(['height', 'pole_height', 'ارتفاع'])
                     f_col = find_col(['fixture', 'fixture_type', 'فانوس', 'كشاف'])
-                    l_col = find_col(['lamp', 'lamp_type', 'لمبة', 'قدرة'])
-                    s_col = find_col(['status', 'pole_status', 'حالة'])
-                    lat_col = find_col(['lat', 'latitude'])
-                    lng_col = find_col(['lng', 'long', 'longitude'])
+                    l_col = find_col(['lamp_type', 'lamp', 'لمبة', 'قدرة'])
+                    s_col = find_col(['pole_status', 'status', 'حالة العمود'])
+                    ls_col = find_col(['lamp_status', 'حالة المصباح'])
+                    door_col = find_col(['door', 'الباب'])
+                    feeder_col = find_col(['feeder', 'مغذى'])
+                    panel_col = find_col(['panel_base', 'panel', 'قاعدة'])
+                    depth_col = find_col(['depth', 'عمق'])
+                    flange_col = find_col(['flange', 'flange_size', 'فلانشة'])
 
                     added_count = 0
                     for _, row in df.iterrows():
@@ -236,25 +271,38 @@ def dashboard():
                         if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
                             
+                        p_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ''
+                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
+                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
                         h = str(row[h_col]).strip() if h_col and pd.notna(row[h_col]) else ''
                         f = str(row[f_col]).strip() if f_col and pd.notna(row[f_col]) else ''
                         l = str(row[l_col]).strip() if l_col and pd.notna(row[l_col]) else ''
                         s = str(row[s_col]).strip() if s_col and pd.notna(row[s_col]) else 'سليم'
-                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
-                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
+                        ls = str(row[ls_col]).strip() if ls_col and pd.notna(row[ls_col]) else 'يعمل'
+                        door = str(row[door_col]).strip() if door_col and pd.notna(row[door_col]) else 'موجود'
+                        feeder = str(row[feeder_col]).strip() if feeder_col and pd.notna(row[feeder_col]) else ''
+                        panel_base = str(row[panel_col]).strip() if panel_col and pd.notna(row[panel_col]) else ''
+                        depth = str(row[depth_col]).strip() if depth_col and pd.notna(row[depth_col]) else ''
+                        flange_size = str(row[flange_col]).strip() if flange_col and pd.notna(row[flange_col]) else ''
                         
-                        # إضافة أو تحديث العمود المضاف حديثاً دون المساس بباقي الجدول القديم
                         cursor.execute('''
-                            INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO poles (pole_ID, Pole_Name, lat, lng, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, Lamp_Status, Door, Feeder, Panel_Base, Depth, Flange_Size)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(pole_ID) DO UPDATE SET
+                            Pole_Name=excluded.Pole_Name,
+                            lat=excluded.lat,
+                            lng=excluded.lng,
                             Pole_Height=excluded.Pole_Height,
                             Fixture_Type=excluded.Fixture_Type,
                             Lamp_Type=excluded.Lamp_Type,
                             Pole_Status=excluded.Pole_Status,
-                            lat=excluded.lat,
-                            lng=excluded.lng
-                        ''', (p_id, h, f, l, s, lat, lng))
+                            Lamp_Status=excluded.Lamp_Status,
+                            Door=excluded.Door,
+                            Feeder=excluded.Feeder,
+                            Panel_Base=excluded.Panel_Base,
+                            Depth=excluded.Depth,
+                            Flange_Size=excluded.Flange_Size
+                        ''', (p_id, p_name, lat, lng, h, f, l, s, ls, door, feeder, panel_base, depth, flange_size))
                         generate_qr_code(p_id)
                         added_count += 1
 
@@ -266,17 +314,24 @@ def dashboard():
 
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')
+            p_name = request.form.get('Pole_Name')
+            lat = request.form.get('lat')
+            lng = request.form.get('lng')
             height = request.form.get('Pole_Height')
             f_type = request.form.get('Fixture_Type')
             l_type = request.form.get('Lamp_Type')
             status = request.form.get('Pole_Status')
-            lat = request.form.get('lat')
-            lng = request.form.get('lng')
+            ls = request.form.get('Lamp_Status', 'يعمل')
+            door = request.form.get('Door', 'موجود')
+            feeder = request.form.get('Feeder', '')
+            panel_base = request.form.get('Panel_Base', '')
+            depth = request.form.get('Depth', '')
+            flange_size = request.form.get('Flange_Size', '')
             try:
                 cursor.execute('''
-                    INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (p_id, height, f_type, l_type, status, lat, lng))
+                    INSERT INTO poles (pole_ID, Pole_Name, lat, lng, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, Lamp_Status, Door, Feeder, Panel_Base, Depth, Flange_Size)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (p_id, p_name, lat, lng, height, f_type, l_type, status, ls, door, feeder, panel_base, depth, flange_size))
                 conn.commit()
                 generate_qr_code(p_id)
                 flash('تم إضافة العمود وتوليد الـ QR بنجاح', 'success')
@@ -296,7 +351,7 @@ def dashboard():
 
     search = request.args.get('search', '')
     if search:
-        cursor.execute("SELECT * FROM poles WHERE pole_ID LIKE ? OR Lamp_Type LIKE ?", ('%' + search + '%', '%' + search + '%'))
+        cursor.execute("SELECT * FROM poles WHERE pole_ID LIKE ? OR Pole_Name LIKE ? OR Lamp_Type LIKE ?", ('%' + search + '%', '%' + search + '%', '%' + search + '%'))
     else:
         cursor.execute('SELECT * FROM poles')
     
@@ -305,6 +360,11 @@ def dashboard():
     
     return render_template('dashboard.html', poles=poles, search=search, admin_info=admin_info, technicians=technicians)
 
+@app.route('/download_all_qrs')
+def download_all_qrs():
+    flash('يرجى تحميل رموز الـ QR الخاصة بكل عمود بشكل فردي من صفحة تفاصيل العمود لتجنب ضغط الخادم.', 'info')
+    return redirect(url_for('dashboard'))
+
 @app.route('/pole/<pole_id>')
 def pole_detail(pole_id):
     conn = get_db_connection()
@@ -312,11 +372,7 @@ def pole_detail(pole_id):
     cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
     pole = cursor.fetchone()
     conn.close()
-
-@app.route('/download_all_qrs')
-def download_all_qrs():
-    flash('يرجى تحميل رموز الـ QR الخاصة بكل عمود بشكل فردي من صفحة تفاصيل العمود لتجنب ضغط الخادم.', 'info')
-    return redirect(url_for('dashboard'))
+    
     if not pole:
         return "العمود غير موجود", 404
     return render_template('pole_detail.html', pole=pole)
@@ -370,35 +426,7 @@ def technician_edit(pole_id):
             height = request.form.get('Pole_Height')
             f_type = request.form.get('Fixture_Type')
             l_type = request.form.get('Lamp_Type')
-            notes = request.form.get('technician_notes')
-            
-            cursor.execute('''
-                UPDATE poles SET Pole_Height = ?, Fixture_Type = ?, Lamp_Type = ?, Pole_Status = ?, technician_notes = ?, last_updated = CURRENT_TIMESTAMP
-                WHERE pole_ID = ?
-            ''', (height, f_type, l_type, status, notes, pole_id))
-            conn.commit()
-            flash('تم حفظ تحديثات بيانات العمود بنجاح', 'success')
-
-    cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
-    pole = cursor.fetchone()
-    
-    cursor.execute('SELECT * FROM technicians WHERE id = ?', (session.get('tech_id'),))
-    my_account = cursor.fetchone()
-    
-    conn.close()
-    
-    if not pole:
-        return "العمود غير موجود", 404
-        
-    return render_template('technician_edit.html', pole=pole, my_account=my_account)
-
-@app.route('/technician/logout')
-def technician_logout():
-    pole_id = request.args.get('pole_id', '')
-    session.pop('tech_logged', None)
-    session.pop('tech_id', None)
-    session.pop('tech_username', None)
-    return redirect(url_for('technician_login', pole_id=pole_id))
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+            ls = request.form.get('Lamp_Status')
+            door = request.form.get('Door')
+            feeder = request.form.get('Feeder')
+            panel_base = request.fo

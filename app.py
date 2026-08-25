@@ -138,7 +138,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-        elif action == 'upload_excel':
+elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
                 filename = secure_filename(file.filename)
@@ -146,39 +146,42 @@ def dashboard():
                 file.save(file_path)
                 
                 try:
+                    # قراءة الملف دفعة واحدة وسرعة فائقة
                     df = pd.read_excel(file_path)
-                    df.columns = df.columns.str.strip()
+                    df.columns = df.columns.str.strip().str.lower()
                     
-                    data_to_insert = []
-                    
-                    for _, row in df.iterrows():
-                        p_id_val = None
+                    # البحث الذكي عن أسماء الأعمدة بغض النظر عن حالة الأحرف
+                    def find_col(possible_names):
                         for col in df.columns:
-                            if 'pole' in col.lower() and 'id' in col.lower():
-                                p_id_val = row[col]
-                                break
-                        if not p_id_val or pd.isna(p_id_val):
-                            p_id_val = row.iloc[0]
-                        
-                        p_id = str(p_id_val).strip()
-                        
-                        def get_val(keywords):
-                            for col in df.columns:
-                                if any(kw in col.lower() for kw in keywords):
-                                    val = row[col]
-                                    return str(val).strip() if not pd.isna(val) else ''
-                            return ''
+                            if any(name in col for name in possible_names):
+                                return col
+                        return None
 
-                        height = get_val(['height'])
-                        f_type = get_val(['fixture'])
-                        l_type = get_val(['lamp'])
-                        status = get_val(['status']) or 'سليم'
-                        lat = get_val(['lat', 'latitude', 'y'])
-                        lng = get_val(['lng', 'long', 'longitude', 'x'])
+                    id_col = find_col(['pole_id', 'pole id', 'id']) or df.columns[0]
+                    height_col = find_col(['height', 'pole_height'])
+                    fixture_col = find_col(['fixture', 'fixture_type'])
+                    lamp_col = find_col(['lamp', 'lamp_type'])
+                    status_col = find_col(['status', 'pole_status'])
+                    lat_col = find_col(['lat', 'latitude', 'y'])
+                    lng_col = find_col(['lng', 'long', 'longitude', 'x'])
 
+                    # تجهيز البيانات كقائمة من الحزم (Tuples) دفعة واحدة
+                    data_to_insert = []
+                    for _, row in df.iterrows():
+                        p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
+                        if not p_id or p_id.lower() == 'nan':
+                            continue
+                            
+                        height = str(row[height_col]).strip() if height_col and pd.notna(row[height_col]) else ''
+                        f_type = str(row[fixture_col]).strip() if fixture_col and pd.notna(row[fixture_col]) else ''
+                        l_type = str(row[lamp_col]).strip() if lamp_col and pd.notna(row[lamp_col]) else ''
+                        status = str(row[status_col]).strip() if status_col and pd.notna(row[status_col]) else 'سليم'
+                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
+                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
+                        
                         data_to_insert.append((p_id, height, f_type, l_type, status, lat, lng))
-                    
-                    # حفظ البيانات الضخمة دفعة واحدة في قاعدة البيانات بأمان تام ودون مهلة 502
+
+                    # استخدام المعاملات الجماعية (executemany) لإدخال البيانات في قاعدة البيانات بسرعة خيالية
                     cursor.executemany('''
                         INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -192,9 +195,9 @@ def dashboard():
                     ''', data_to_insert)
                     conn.commit()
 
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وتجنب خطأ 502!', 'success')
+                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وبدون أي أخطاء!', 'success')
                 except Exception as e:
-                    flash(f'خطأ في قراءة ملف الاكسل: {e}', 'danger')
+                    flash(f'خطأ في معالجة ملف الاكسل: {str(e)}', 'danger')
 
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')

@@ -138,7 +138,8 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-elif action == 'upload_excel':
+# معالجة رفع ملف الاكسل وتحديث البيانات
+        if action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
                 filename = secure_filename(file.filename)
@@ -149,38 +150,30 @@ elif action == 'upload_excel':
                     df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = df.columns.str.strip().str.lower()
                     
-                    def find_col(possible_names):
-                        for col in df.columns:
-                            if any(name in col for name in possible_names):
-                                return col
-                        return None
-
-                    id_col = find_col(['pole_id', 'pole id', 'id']) or df.columns[0]
-                    height_col = find_col(['height', 'pole_height'])
-                    fixture_col = find_col(['fixture', 'fixture_type'])
-                    lamp_col = find_col(['lamp', 'lamp_type'])
-                    status_col = find_col(['status', 'pole_status'])
-                    lat_col = find_col(['lat', 'latitude', 'y'])
-                    lng_col = find_col(['lng', 'long', 'longitude', 'x'])
-
+                    id_col = df.columns[0]
+                    for col in df.columns:
+                        if 'pole_id' in col or 'id' in col:
+                            id_col = col
+                            break
+                            
                     data_to_insert = []
                     for _, row in df.iterrows():
                         p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
-                        if not p_id or p_id.lower() == 'nan' or p_id == '':
+                        if not p_id or p_id.lower() == 'nan':
                             continue
-                            
-                        height = str(row[height_col]).strip() if height_col and pd.notna(row[height_col]) else ''
-                        f_type = str(row[fixture_col]).strip() if fixture_col and pd.notna(row[fixture_col]) else ''
-                        l_type = str(row[lamp_col]).strip() if lamp_col and pd.notna(row[lamp_col]) else ''
-                        status = str(row[status_col]).strip() if status_col and pd.notna(row[status_col]) else 'سليم'
-                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
-                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
                         
-                        data_to_insert.append((p_id, height, f_type, l_type, status, lat, lng))
+                        # استخراج القيم بشكل آمن
+                        h = str(row.get('pole_height', row.get('height', ''))).strip()
+                        f = str(row.get('fixture_type', row.get('fixture', ''))).strip()
+                        l = str(row.get('lamp_type', row.get('lamp', ''))).strip()
+                        s = str(row.get('pole_status', row.get('status', 'سليم'))).strip()
+                        lat = str(row.get('lat', row.get('latitude', ''))).strip()
+                        lng = str(row.get('lng', row.get('long', ''))).strip()
+                        
+                        data_to_insert.append((p_id, h, f, l, s, lat, lng))
 
-                    batch_size = 1000
-                    for i in range(0, len(data_to_insert), batch_size):
-                        batch = data_to_insert[i:i + batch_size]
+                    # إدخال دفعة واحدة لتسريع العملية ومنع الانهيار
+                    if data_to_insert:
                         cursor.executemany('''
                             INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -191,13 +184,15 @@ elif action == 'upload_excel':
                             Pole_Status=excluded.Pole_Status,
                             lat=excluded.lat,
                             lng=excluded.lng
-                        ''', batch)
+                        ''', data_to_insert)
                         conn.commit()
 
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود إنارة بنجاح تام!', 'success')
+                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح!', 'success')
                 except Exception as e:
-                    flash(f'خطأ أثناء قراءة الملف: {str(e)}', 'danger')
+                    flash(f'خطأ أثناء معالجة ملف الأكسل: {str(e)}', 'danger')
+
         elif action == 'add_pole':
+            # باقي الكود الخاص بالإضافة اليدوية...
             p_id = request.form.get('pole_ID')
             height = request.form.get('Pole_Height')
             f_type = request.form.get('Fixture_Type')

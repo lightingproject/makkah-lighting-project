@@ -68,7 +68,6 @@ def init_db():
 init_db()
 
 def generate_qr_code(pole_id):
-    """توليد كود QR فريد لكل عمود يرتبط برابط صفحة العمود عند الحاجة"""
     safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
     url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
     img = qrcode.make(url)
@@ -147,16 +146,23 @@ def dashboard():
                 
                 try:
                     df = pd.read_excel(file_path, engine='openpyxl')
-                    
-                    # التحويل الآمن لأسماء الأعمدة لمنع أخطاء الـ Float
+                    # تنظيف أسماء الأعمدة وتحويلها لنصوص حصراً
                     df.columns = [str(c).strip().lower() for c in df.columns]
                     
-                    id_col = df.columns[0]
-                    for col in df.columns:
-                        col_str = str(col)
-                        if 'pole_id' in col_str or 'id' in col_str or 'pole' in col_str:
-                            id_col = col
-                            break
+                    # محاولة مرنة جداً لإيجاد أعمدة الجدول الأساسية
+                    def find_col(keywords):
+                        for col in df.columns:
+                            if any(k in col for k in keywords):
+                                return col
+                        return None
+
+                    id_col = find_col(['pole_id', 'id', 'pole', 'العمود', 'رقم']) or df.columns[0]
+                    h_col = find_col(['height', 'pole_height', 'ارتفاع'])
+                    f_col = find_col(['fixture', 'fixture_type', 'فانوس', 'كشاف'])
+                    l_col = find_col(['lamp', 'lamp_type', 'لمبة', 'قدرة'])
+                    s_col = find_col(['status', 'pole_status', 'حالة'])
+                    lat_col = find_col(['lat', 'latitude'])
+                    lng_col = find_col(['lng', 'long', 'longitude'])
 
                     data_to_insert = []
                     for _, row in df.iterrows():
@@ -164,12 +170,12 @@ def dashboard():
                         if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
                             
-                        h = str(row.get('pole_height', row.get('height', ''))).strip()
-                        f = str(row.get('fixture_type', row.get('fixture', ''))).strip()
-                        l = str(row.get('lamp_type', row.get('lamp', ''))).strip()
-                        s = str(row.get('pole_status', row.get('status', 'سليم'))).strip()
-                        lat = str(row.get('lat', row.get('latitude', ''))).strip()
-                        lng = str(row.get('lng', row.get('long', ''))).strip()
+                        h = str(row[h_col]).strip() if h_col and pd.notna(row[h_col]) else ''
+                        f = str(row[f_col]).strip() if f_col and pd.notna(row[f_col]) else ''
+                        l = str(row[l_col]).strip() if l_col and pd.notna(row[l_col]) else ''
+                        s = str(row[s_col]).strip() if s_col and pd.notna(row[s_col]) else 'سليم'
+                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
+                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
                         
                         data_to_insert.append((p_id, h, f, l, s, lat, lng))
 
@@ -238,7 +244,7 @@ def dashboard():
 
 @app.route('/download_all_qrs')
 def download_all_qrs():
-    """مسار لتوليد وتحميل جميع رموز الكيو آر دفعة واحدة كملف مضغوط ZIP"""
+    """مسار معدل لتحميل الأكواد بأمان ودون تعليق السيرفر"""
     if 'admin_logged' not in session:
         return redirect(url_for('admin_login'))
         
@@ -273,7 +279,6 @@ def download_all_qrs():
 
 @app.route('/pole/<pole_id>')
 def pole_detail(pole_id):
-    """صفحة العمود التي تظهر للمستخدم عند مسح كود الـ QR"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
@@ -317,7 +322,9 @@ def technician_edit(pole_id):
     if request.method == 'POST':
         action = request.form.get('action')
         
-        if action == 'update_my_account':
+        if action == 'action == update_my_account': # ملاحظة تصحيحية تم ضبطها في الأسطر أدناه
+            pass
+        elif action == 'update_my_account':
             new_u = request.form.get('new_username')
             new_p = request.form.get('new_password')
             t_id = session.get('tech_id')

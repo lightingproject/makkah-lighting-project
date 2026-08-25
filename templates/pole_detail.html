@@ -2,73 +2,38 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>تفاصيل عمود الإنارة - {{ pole.pole_ID }}</title>
-    <style>
-        body { font-family: Tahoma, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; }
-        .card { max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        h2 { color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-        .info-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eee; }
-        .label { font-weight: bold; color: #555; }
-        .value { color: #333; }
-        .btn { display: block; text-align: center; background: #3498db; color: white; padding: 12px; text-decoration: none; border-radius: 5px; margin-top: 15px; font-weight: bold; }
-        .btn:hover { background: #2980b9; }
-        .btn-success { background: #27ae60; }
-        .btn-success:hover { background: #219653; }
-        .btn-secondary { background: #6c757d; }
-        .btn-secondary:hover { background: #5a6268; }
-        .map-link { color: #27ae60; font-weight: bold; text-decoration: none; }
-        .qr-section { text-align: center; background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e9ecef; }
-        .qr-img { width: 180px; height: 180px; border: 4px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 6px; }
-    </style>
+    <title>تفاصيل العمود: {{ pole.pole_ID }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 </head>
-<body>
-    <div class="card">
-        <h2>معلومات عمود الإنارة</h2>
-        
-        <!-- قسم عرض و تحميل QR Code -->
-        <div class="qr-section">
-            <h4 style="margin-top: 0; color: #333; margin-bottom: 10px;">رمز الاستجابة السريعة (QR Code)</h4>
-            <img src="{{ url_for('static', filename='qrs/' ~ pole.pole_ID | replace('/', '_') | replace('\\', '_') ~ '.png') }}" alt="QR Code" class="qr-img" id="qrImage">
-            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                <a href="{{ url_for('static', filename='qrs/' ~ pole.pole_ID | replace('/', '_') | replace('\\', '_') ~ '.png') }}" download="QR_Pole_{{ pole.pole_ID }}.png" class="btn btn-success" style="margin-top: 0; padding: 8px 15px; font-size: 0.9rem;">
-                    📥 تحميل صورة QR
-                </a>
-                <button type="button" onclick="copyPoleLink()" class="btn btn-secondary" style="margin-top: 0; padding: 8px 15px; font-size: 0.9rem; border: none; cursor: pointer;">
-                    📋 نسخ رابط العمود
-                </button>
+<body class="bg-light py-5">
+    <div class="container" style="max-width: 700px;">
+        <div class="card shadow">
+            <div class="card-header bg-dark text-white text-center">
+                <h4>بيانات عمود الإنارة: {{ pole.pole_ID }}</h4>
+            </div>
+            <div class="card-body">
+                <table class="table table-bordered">
+                    <tr><th>اسم العمود</th><td>{{ pole.Pole_Name }}</td></tr>
+                    <tr><th>خط العرض / الطول</th><td>{{ pole.lat }} , {{ pole.lng }}</td></tr>
+                    <tr><th>ارتفاع العمود</th><td>{{ pole.Pole_Height }}</td></tr>
+                    <tr><th>نوع الفانوس</th><td>{{ pole.Fixture_Type }}</td></tr>
+                    <tr><th>نوع المصباح</th><td>{{ pole.Lamp_Type }}</td></tr>
+                    <tr><th>حالة العمود</th><td><span class="badge bg-success">{{ pole.Pole_Status }}</span></td></tr>
+                    <tr><th>حالة المصباح</th><td><span class="badge bg-info text-dark">{{ pole.Lamp_Status }}</span></td></tr>
+                    <tr><th>الباب</th><td>{{ pole.Door }}</td></tr>
+                    <tr><th>المغذي (Feeder)</th><td>{{ pole.Feeder }}</td></tr>
+                    <tr><th>قاعدة اللوحة</th><td>{{ pole.Panel_Base }}</td></tr>
+                    <tr><th>العمق</th><td>{{ pole.Depth }}</td></tr>
+                    <tr><th>مقاس الفلانشة</th><td>{{ pole.Flange_Size }}</td></tr>
+                    <tr><th>ملاحظات الصيانة</th><td>{{ pole.technician_notes or 'لا توجد ملاحظات سابقة' }}</td></tr>
+                    <tr><th>آخر تحديث</th><td>{{ pole.last_updated }}</td></tr>
+                </table>
+
+                <div class="text-center mt-4">
+                    <a href="{{ url_for('technician_login', pole_id=pole.pole_ID) }}" class="btn btn-warning w-100">تسجيل دخول الفني لتعديل البيانات</a>
+                </div>
             </div>
         </div>
-
-        <div class="info-row"><span class="label">معرف العمود (Pole ID):</span><span class="value"><strong>{{ pole.pole_ID }}</strong></span></div>
-        <div class="info-row"><span class="label">ارتفاع العمود:</span><span class="value">{{ pole.Pole_Height or 'غير متوفر' }}</span></div>
-        <div class="info-row"><span class="label">نوع الفانوس (Fixture):</span><span class="value">{{ pole.Fixture_Type or 'غير متوفر' }}</span></div>
-        <div class="info-row"><span class="label">نوع المصباح (Lamp):</span><span class="value">{{ pole.Lamp_Type or 'غير متوفر' }}</span></div>
-        <div class="info-row"><span class="label">حالة العمود:</span><span class="value">{{ pole.Pole_Status or 'سليم' }}</span></div>
-        <div class="info-row"><span class="label">ملاحظات الفني:</span><span class="value">{{ pole.technician_notes or 'لا توجد ملاحظات' }}</span></div>
-        <div class="info-row"><span class="label">الموقع الجغرافي:</span>
-            <span class="value">
-                {% if pole.lat and pole.lng %}
-                    <a href="https://www.google.com/maps?q={{ pole.lat }},{{ pole.lng }}" target="_blank" class="map-link">عرض على خريطة جوجل 📍</a>
-                {% else %}
-                    غير متوفر
-                {% endif %}
-            </span>
-        </div>
-        <div class="info-row"><span class="label">آخر تحديث:</span><span class="value">{{ pole.last_updated }}</span></div>
-
-        <!-- زر دخول الفني لتعديل بيانات العمود وحسابه -->
-        <a href="{{ url_for('technician_login', pole_id=pole.pole_ID) }}" class="btn">🛠️ دخول الفني لتعديل البيانات</a>
     </div>
-
-    <script>
-        function copyPoleLink() {
-            const currentUrl = window.location.href;
-            navigator.clipboard.writeText(currentUrl).then(() => {
-                alert('تم نسخ رابط العمود بنجاح!');
-            }).catch(err => {
-                alert('فشل نسخ الرابط');
-            });
-        }
-    </script>
 </body>
 </html>

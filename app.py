@@ -1,7 +1,9 @@
 import os
 import qrcode
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+import zipfile
+import io
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.utils import secure_filename
 import sqlite3
 
@@ -66,9 +68,9 @@ def init_db():
 init_db()
 
 def generate_qr_code(pole_id):
-    """توليد كود QR فريد لكل عمود يرتبط برابط صفحة العمود"""
+    """توليد كود QR فريد لكل عمود يرتبط برابط صفحة العمود عند الحاجة"""
     safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
-    url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}" # استبدل الرابط بـ IP الخادم المحلي عند النشر الميداني
+    url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
     img = qrcode.make(url)
     qr_path = os.path.join(QR_FOLDER, f"{safe_id}.png")
     img.save(qr_path)
@@ -148,7 +150,6 @@ def dashboard():
                     df.columns = df.columns.str.strip()
                     
                     data_to_insert = []
-                    pole_ids_list = []
                     
                     for _, row in df.iterrows():
                         p_id_val = None
@@ -176,8 +177,8 @@ def dashboard():
                         lng = get_val(['lng', 'long', 'longitude', 'x'])
 
                         data_to_insert.append((p_id, height, f_type, l_type, status, lat, lng))
-                        pole_ids_list.append(p_id)
                     
+                    # حفظ البيانات الضخمة دفعة واحدة في قاعدة البيانات بأمان تام ودون مهلة 502
                     cursor.executemany('''
                         INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -191,11 +192,7 @@ def dashboard():
                     ''', data_to_insert)
                     conn.commit()
 
-                    # توليد صور QR للأعمدة المرفوعة (توليدها في الخلفية)
-                    for pid in pole_ids_list:
-                        generate_qr_code(pid)
-                    
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود وتوليد أكواد الـ QR بنجاح!', 'success')
+                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وتجنب خطأ 502!', 'success')
                 except Exception as e:
                     flash(f'خطأ في قراءة ملف الاكسل: {e}', 'danger')
 
@@ -239,6 +236,42 @@ def dashboard():
     conn.close()
     
     return render_template('dashboard.html', poles=poles, search=search, admin_info=admin_info, technicians=technicians)
+
+@app.route('/download_all_qrs')
+def download_all_qrs():
+    """مسار لتوليد وتحميل جميع رموز الكيو آر دفعة واحدة كملف مضغوط ZIP"""
+    if 'admin_logged' not in session:
+        return redirect(url_for('admin_login'))
+        
+    memory_file = io.BytesIO()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT pole_ID FROM poles')
+    poles = cursor.fetchall()
+    conn.close()
+    
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for pole in poles:
+            pole_id = pole['pole_ID']
+            safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
+            url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
+            
+            # توليد صورة الـ QR في الذاكرة المؤقتة وإضافتها لملف الـ ZIP مباشرة
+            img = qrcode.make(url)
+            img_io = io.BytesIO()
+            img.save(img_io, 'PNG')
+            img_io.seek(0)
+            
+            zipf.writestr(f"pole_{safe_id}.png", img_io.read())
+            
+    memory_file.seek(0)
+    
+    return send_file(
+        memory_file,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name='all_poles_qrs.zip'
+    )
 
 @app.route('/pole/<pole_id>')
 def pole_detail(pole_id):
@@ -286,7 +319,6 @@ def technician_edit(pole_id):
     if request.method == 'POST':
         action = request.form.get('action')
         
-        # صلاحية الفني لتعديل بيانات حسابه الشخصي (اسم المستخدم وكلمة المرور)
         if action == 'update_my_account':
             new_u = request.form.get('new_username')
             new_p = request.form.get('new_password')
@@ -299,7 +331,6 @@ def technician_edit(pole_id):
             except:
                 flash('اسم المستخدم الجديد مستخدم مسبقاً', 'danger')
                 
-        # صلاحية الفني لتعديل بيانات العمود
         elif action == 'update_pole_data':
             status = request.form.get('Pole_Status')
             height = request.form.get('Pole_Height')

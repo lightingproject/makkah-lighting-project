@@ -301,7 +301,11 @@ def pole_detail(pole_id):
     cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
     pole = cursor.fetchone()
     conn.close()
-    
+
+    @app.route('/download_all_qrs')
+def download_all_qrs():
+    flash('يرجى تحميل رموز الـ QR الخاصة بكل عمود بشكل فردي من صفحة تفاصيل العمود لتجنب ضغط الخادم.', 'info')
+    return redirect(url_for('dashboard'))
     if not pole:
         return "العمود غير موجود", 404
     return render_template('pole_detail.html', pole=pole)

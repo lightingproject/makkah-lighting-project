@@ -138,8 +138,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-# معالجة رفع ملف الاكسل وتحديث البيانات
-       elif action == 'upload_excel':
+        elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
                 filename = secure_filename(file.filename)
@@ -147,11 +146,9 @@ def dashboard():
                 file.save(file_path)
                 
                 try:
-                    # قراءة الملف باستخدام الـ chunks أو قراءة سريعة آمنة
                     df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = df.columns.str.strip().str.lower()
                     
-                    # البحث عن اسم العمود الخاص بالـ ID
                     id_col = None
                     for col in df.columns:
                         if 'pole_id' in col or 'id' in col or 'pole' in col:
@@ -160,7 +157,6 @@ def dashboard():
                     if not id_col:
                         id_col = df.columns[0]
 
-                    # تجهيز البيانات للإدخال الجماعي
                     data_to_insert = []
                     for _, row in df.iterrows():
                         p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
@@ -176,7 +172,6 @@ def dashboard():
                         
                         data_to_insert.append((p_id, h, f, l, s, lat, lng))
 
-                    # إدخال البيانات على دفعات (كل 500 صف معاً) لتجنب تعليق السيرفر
                     batch_size = 500
                     for i in range(0, len(data_to_insert), batch_size):
                         batch = data_to_insert[i:i + batch_size]
@@ -195,10 +190,9 @@ def dashboard():
 
                     flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام!', 'success')
                 except Exception as e:
-                    # في حال حدث أي خطأ، سيظهر لك كرسالة حمراء واضحة بدلاً من الصفحة البيضاء
-                    flash(فشل رفع الملف بسبب: {str(e)}, 'danger')
+                    flash(f'فشل رفع الملف بسبب: {str(e)}', 'danger')
+
         elif action == 'add_pole':
-            # باقي الكود الخاص بالإضافة اليدوية...
             p_id = request.form.get('pole_ID')
             height = request.form.get('Pole_Height')
             f_type = request.form.get('Fixture_Type')
@@ -258,7 +252,6 @@ def download_all_qrs():
             safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
             url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
             
-            # توليد صورة الـ QR في الذاكرة المؤقتة وإضافتها لملف الـ ZIP مباشرة
             img = qrcode.make(url)
             img_io = io.BytesIO()
             img.save(img_io, 'PNG')

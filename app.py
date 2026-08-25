@@ -190,8 +190,9 @@ def dashboard():
 
                     flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام!', 'success')
                 except Exception as e:
-                    flash(f'فشل رفع الملف بسبب: {str(e)}', 'danger')
-
+                    import traceback
+                    error_details = traceback.format_exc()
+                    return f"<h3 dir='ltr'>ERROR DETAILS:</h3><pre>{error_details}</pre>", 500
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')
             height = request.form.get('Pole_Height')

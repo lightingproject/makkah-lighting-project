@@ -139,7 +139,7 @@ def dashboard():
             flash('تم حذف حساب الفني بنجاح', 'info')
 
 # معالجة رفع ملف الاكسل وتحديث البيانات
-        if action == 'upload_excel':
+        elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
                 filename = secure_filename(file.filename)

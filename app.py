@@ -68,7 +68,7 @@ init_db()
 def generate_qr_code(pole_id):
     """توليد كود QR فريد لكل عمود يرتبط برابط صفحة العمود"""
     safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
-    url = f"http://192.168.1.7:5000/pole/{safe_id}" # استبدل الرابط بـ IP الخادم المحلي عند النشر الميداني
+    url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}" # استبدل الرابط بـ IP الخادم المحلي عند النشر الميداني
     img = qrcode.make(url)
     qr_path = os.path.join(QR_FOLDER, f"{safe_id}.png")
     img.save(qr_path)

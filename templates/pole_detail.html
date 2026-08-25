@@ -10,15 +10,35 @@
         .info-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eee; }
         .label { font-weight: bold; color: #555; }
         .value { color: #333; }
-        .btn { display: block; text-align: center; background: #3498db; color: white; padding: 12px; text-decoration: none; border-radius: 5px; margin-top: 20px; font-weight: bold; }
+        .btn { display: block; text-align: center; background: #3498db; color: white; padding: 12px; text-decoration: none; border-radius: 5px; margin-top: 15px; font-weight: bold; }
         .btn:hover { background: #2980b9; }
+        .btn-success { background: #27ae60; }
+        .btn-success:hover { background: #219653; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #5a6268; }
         .map-link { color: #27ae60; font-weight: bold; text-decoration: none; }
+        .qr-section { text-align: center; background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e9ecef; }
+        .qr-img { width: 180px; height: 180px; border: 4px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 6px; }
     </style>
 </head>
 <body>
     <div class="card">
         <h2>معلومات عمود الإنارة</h2>
         
+        <!-- قسم عرض و تحميل QR Code -->
+        <div class="qr-section">
+            <h4 style="margin-top: 0; color: #333; margin-bottom: 10px;">رمز الاستجابة السريعة (QR Code)</h4>
+            <img src="{{ url_for('static', filename='qrs/' ~ pole.pole_ID | replace('/', '_') | replace('\\', '_') ~ '.png') }}" alt="QR Code" class="qr-img" id="qrImage">
+            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                <a href="{{ url_for('static', filename='qrs/' ~ pole.pole_ID | replace('/', '_') | replace('\\', '_') ~ '.png') }}" download="QR_Pole_{{ pole.pole_ID }}.png" class="btn btn-success" style="margin-top: 0; padding: 8px 15px; font-size: 0.9rem;">
+                    📥 تحميل صورة QR
+                </a>
+                <button type="button" onclick="copyPoleLink()" class="btn btn-secondary" style="margin-top: 0; padding: 8px 15px; font-size: 0.9rem; border: none; cursor: pointer;">
+                    📋 نسخ رابط العمود
+                </button>
+            </div>
+        </div>
+
         <div class="info-row"><span class="label">معرف العمود (Pole ID):</span><span class="value"><strong>{{ pole.pole_ID }}</strong></span></div>
         <div class="info-row"><span class="label">ارتفاع العمود:</span><span class="value">{{ pole.Pole_Height or 'غير متوفر' }}</span></div>
         <div class="info-row"><span class="label">نوع الفانوس (Fixture):</span><span class="value">{{ pole.Fixture_Type or 'غير متوفر' }}</span></div>
@@ -39,5 +59,16 @@
         <!-- زر دخول الفني لتعديل بيانات العمود وحسابه -->
         <a href="{{ url_for('technician_login', pole_id=pole.pole_ID) }}" class="btn">🛠️ دخول الفني لتعديل البيانات</a>
     </div>
+
+    <script>
+        function copyPoleLink() {
+            const currentUrl = window.location.href;
+            navigator.clipboard.writeText(currentUrl).then(() => {
+                alert('تم نسخ رابط العمود بنجاح!');
+            }).catch(err => {
+                alert('فشل نسخ الرابط');
+            });
+        }
+    </script>
 </body>
 </html>

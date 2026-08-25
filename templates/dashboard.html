@@ -59,14 +59,22 @@
         {% endif %}
     </div>
     
-    <!-- رفع ملف الـ Excel -->
-    <div style="background: #f1f8f5; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-        <h4>📂 رفع أو تحديث قاعدة بيانات الأعمدة عبر ملف Excel</h4>
-        <form method="POST" enctype="multipart/form-data" style="margin-top: 10px;">
-            <input type="hidden" name="action" value="upload_excel">
-            <input type="file" name="excel_file" accept=".xlsx, .xls" required>
-            <button type="submit" class="btn btn-success" style="margin-top: 5px;">رفع وتحديث البيانات</button>
-        </form>
+    <!-- رفع ملف الـ Excel وتحميل رموز QR -->
+    <div style="background: #f1f8f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+        <div style="flex: 1; min-width: 250px;">
+            <h4 style="margin-bottom: 10px;">📂 رفع أو تحديث قاعدة بيانات الأعمدة عبر ملف Excel</h4>
+            <form method="POST" enctype="multipart/form-data" style="margin-top: 5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="hidden" name="action" value="upload_excel">
+                <input type="file" name="excel_file" accept=".xlsx, .xls" required style="flex: 1;">
+                <button type="submit" class="btn btn-success">رفع وتحديث البيانات</button>
+            </form>
+        </div>
+        <div>
+            <h4 style="margin-bottom: 10px;">📦 إدارة صور رموز الكيو آر</h4>
+            <a href="{{ url_for('download_all_qrs') }}" class="btn btn-success btn-lg" style="display: inline-block; text-decoration: none;">
+                📥 تحميل كافة أكواد QR (ZIP)
+            </a>
+        </div>
     </div>
 
     <!-- إضافة عمود يدوياً -->

@@ -26,7 +26,6 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # جدول الأعمدة يشمل جميع الأعمدة الأساسية والإضافية (Feeder, Panel_Base, Depth, Flange_Size)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS poles (
             pole_ID TEXT PRIMARY KEY,
@@ -160,7 +159,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-        # رفع واستبدال البيانات بالكامل
+        # استبدال البيانات بالكامل بطريقة آمنة
         elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -172,50 +171,44 @@ def dashboard():
                     df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = [str(c).strip() for c in df.columns]
                     
-                    def find_col(keywords):
+                    def get_val(row, keywords, default=''):
                         for col in df.columns:
                             col_lower = col.lower()
                             if any(k in col_lower for k in keywords):
-                                return col
-                        return None
-
-                    id_col = find_col(['pole_id', 'id', 'pole', 'العمود', 'رقم']) or df.columns[0]
-                    name_col = find_col(['pole_name', 'name', 'اسم'])
-                    lat_col = find_col(['lat', 'latitude', 'عرض'])
-                    lng_col = find_col(['lng', 'long', 'longitude', 'طول'])
-                    h_col = find_col(['height', 'pole_height', 'ارتفاع'])
-                    f_col = find_col(['fixture', 'fixture_type', 'فانوس', 'كشاف'])
-                    l_col = find_col(['lamp_type', 'lamp', 'لمبة', 'قدرة'])
-                    s_col = find_col(['pole_status', 'status', 'حالة العمود'])
-                    ls_col = find_col(['lamp_status', 'حالة المصباح'])
-                    door_col = find_col(['door', 'الباب'])
-                    feeder_col = find_col(['feeder', 'مغذى'])
-                    panel_col = find_col(['panel_base', 'panel', 'قاعدة'])
-                    depth_col = find_col(['depth', 'عمق'])
-                    flange_col = find_col(['flange', 'flange_size', 'فلانشة'])
+                                val = row[col]
+                                return str(val).strip() if pd.notna(val) else default
+                        return default
 
                     cursor.execute('DELETE FROM poles')
                     conn.commit()
 
                     data_to_insert = []
                     for _, row in df.iterrows():
-                        p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
+                        p_id = get_val(row, ['pole_id', 'id', 'pole', 'العمود', 'رقم'])
+                        if not p_id or p_id.lower() == 'nan' or p_id == '':
+                            # إذا كان العمود الأول هو المعرف افتراضياً
+                            try:
+                                first_col_val = row[df.columns[0]]
+                                p_id = str(first_col_val).strip() if pd.notna(first_col_val) else ''
+                            except:
+                                p_id = ''
+                                
                         if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
                             
-                        p_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ''
-                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
-                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
-                        h = str(row[h_col]).strip() if h_col and pd.notna(row[h_col]) else ''
-                        f = str(row[f_col]).strip() if f_col and pd.notna(row[f_col]) else ''
-                        l = str(row[l_col]).strip() if l_col and pd.notna(row[l_col]) else ''
-                        s = str(row[s_col]).strip() if s_col and pd.notna(row[s_col]) else 'سليم'
-                        ls = str(row[ls_col]).strip() if ls_col and pd.notna(row[ls_col]) else 'يعمل'
-                        door = str(row[door_col]).strip() if door_col and pd.notna(row[door_col]) else 'موجود'
-                        feeder = str(row[feeder_col]).strip() if feeder_col and pd.notna(row[feeder_col]) else ''
-                        panel_base = str(row[panel_col]).strip() if panel_col and pd.notna(row[panel_col]) else ''
-                        depth = str(row[depth_col]).strip() if depth_col and pd.notna(row[depth_col]) else ''
-                        flange_size = str(row[flange_col]).strip() if flange_col and pd.notna(row[flange_col]) else ''
+                        p_name = get_val(row, ['pole_name', 'name', 'اسم'])
+                        lat = get_val(row, ['lat', 'latitude', 'عرض'])
+                        lng = get_val(row, ['lng', 'long', 'longitude', 'طول'])
+                        h = get_val(row, ['height', 'pole_height', 'ارتفاع'])
+                        f = get_val(row, ['fixture', 'fixture_type', 'فانوس', 'كشاف'])
+                        l = get_val(row, ['lamp_type', 'lamp', 'لمبة', 'قدرة'])
+                        s = get_val(row, ['pole_status', 'status', 'حالة العمود'], 'سليم')
+                        ls = get_val(row, ['lamp_status', 'حالة المصباح'], 'يعمل')
+                        door = get_val(row, ['door', 'الباب'], 'موجود')
+                        feeder = get_val(row, ['feeder', 'مغذى'])
+                        panel_base = get_val(row, ['panel_base', 'panel', 'قاعدة'])
+                        depth = get_val(row, ['depth', 'عمق'])
+                        flange_size = get_val(row, ['flange', 'flange_size', 'فلانشة'])
                         
                         data_to_insert.append((p_id, p_name, lat, lng, h, f, l, s, ls, door, feeder, panel_base, depth, flange_size))
                         generate_qr_code(p_id)
@@ -226,12 +219,14 @@ def dashboard():
                     ''', data_to_insert)
                     conn.commit()
 
-                    flash(f'تم مسح البيانات القديمة ورفع {len(data_to_insert)} عمود بنجاح!', 'success')
+                    flash(f'تم استبدال البيانات ورفع {len(data_to_insert)} عمود بنجاح!', 'success')
                 except Exception as e:
                     import traceback
-                    return f"<h3 dir='ltr'>ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
+                    conn.rollback()
+                    conn.close()
+                    return f"<h3 dir='ltr'>EXCEL READ ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
-        # رفع وإضافة البيانات مع الحفاظ على القديم
+        # إضافة وتحديث البيانات (دمج)
         elif action == 'append_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -243,47 +238,40 @@ def dashboard():
                     df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = [str(c).strip() for c in df.columns]
                     
-                    def find_col(keywords):
+                    def get_val(row, keywords, default=''):
                         for col in df.columns:
                             col_lower = col.lower()
                             if any(k in col_lower for k in keywords):
-                                return col
-                        return None
-
-                    id_col = find_col(['pole_id', 'id', 'pole', 'العمود', 'رقم']) or df.columns[0]
-                    name_col = find_col(['pole_name', 'name', 'اسم'])
-                    lat_col = find_col(['lat', 'latitude', 'عرض'])
-                    lng_col = find_col(['lng', 'long', 'longitude', 'طول'])
-                    h_col = find_col(['height', 'pole_height', 'ارتفاع'])
-                    f_col = find_col(['fixture', 'fixture_type', 'فانوس', 'كشاف'])
-                    l_col = find_col(['lamp_type', 'lamp', 'لمبة', 'قدرة'])
-                    s_col = find_col(['pole_status', 'status', 'حالة العمود'])
-                    ls_col = find_col(['lamp_status', 'حالة المصباح'])
-                    door_col = find_col(['door', 'الباب'])
-                    feeder_col = find_col(['feeder', 'مغذى'])
-                    panel_col = find_col(['panel_base', 'panel', 'قاعدة'])
-                    depth_col = find_col(['depth', 'عمق'])
-                    flange_col = find_col(['flange', 'flange_size', 'فلانشة'])
+                                val = row[col]
+                                return str(val).strip() if pd.notna(val) else default
+                        return default
 
                     added_count = 0
                     for _, row in df.iterrows():
-                        p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
+                        p_id = get_val(row, ['pole_id', 'id', 'pole', 'العمود', 'رقم'])
+                        if not p_id or p_id.lower() == 'nan' or p_id == '':
+                            try:
+                                first_col_val = row[df.columns[0]]
+                                p_id = str(first_col_val).strip() if pd.notna(first_col_val) else ''
+                            except:
+                                p_id = ''
+                                
                         if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
                             
-                        p_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ''
-                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
-                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
-                        h = str(row[h_col]).strip() if h_col and pd.notna(row[h_col]) else ''
-                        f = str(row[f_col]).strip() if f_col and pd.notna(row[f_col]) else ''
-                        l = str(row[l_col]).strip() if l_col and pd.notna(row[l_col]) else ''
-                        s = str(row[s_col]).strip() if s_col and pd.notna(row[s_col]) else 'سليم'
-                        ls = str(row[ls_col]).strip() if ls_col and pd.notna(row[ls_col]) else 'يعمل'
-                        door = str(row[door_col]).strip() if door_col and pd.notna(row[door_col]) else 'موجود'
-                        feeder = str(row[feeder_col]).strip() if feeder_col and pd.notna(row[feeder_col]) else ''
-                        panel_base = str(row[panel_col]).strip() if panel_col and pd.notna(row[panel_col]) else ''
-                        depth = str(row[depth_col]).strip() if depth_col and pd.notna(row[depth_col]) else ''
-                        flange_size = str(row[flange_col]).strip() if flange_col and pd.notna(row[flange_col]) else ''
+                        p_name = get_val(row, ['pole_name', 'name', 'اسم'])
+                        lat = get_val(row, ['lat', 'latitude', 'عرض'])
+                        lng = get_val(row, ['lng', 'long', 'longitude', 'طول'])
+                        h = get_val(row, ['height', 'pole_height', 'ارتفاع'])
+                        f = get_val(row, ['fixture', 'fixture_type', 'فانوس', 'كشاف'])
+                        l = get_val(row, ['lamp_type', 'lamp', 'لمبة', 'قدرة'])
+                        s = get_val(row, ['pole_status', 'status', 'حالة العمود'], 'سليم')
+                        ls = get_val(row, ['lamp_status', 'حالة المصباح'], 'يعمل')
+                        door = get_val(row, ['door', 'الباب'], 'موجود')
+                        feeder = get_val(row, ['feeder', 'مغذى'])
+                        panel_base = get_val(row, ['panel_base', 'panel', 'قاعدة'])
+                        depth = get_val(row, ['depth', 'عمق'])
+                        flange_size = get_val(row, ['flange', 'flange_size', 'فلانشة'])
                         
                         cursor.execute('''
                             INSERT INTO poles (pole_ID, Pole_Name, lat, lng, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, Lamp_Status, Door, Feeder, Panel_Base, Depth, Flange_Size)
@@ -307,36 +295,12 @@ def dashboard():
                         added_count += 1
 
                     conn.commit()
-                    flash(f'تمت إضافة أو تحديث {added_count} عمود بنجاح مع الاحتفاظ بالبيانات السابقة!', 'success')
+                    flash(f'تمت إضافة وتحديث {added_count} عمود بنجاح!', 'success')
                 except Exception as e:
                     import traceback
-                    return f"<h3 dir='ltr'>ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
-
-        elif action == 'add_pole':
-            p_id = request.form.get('pole_ID')
-            p_name = request.form.get('Pole_Name')
-            lat = request.form.get('lat')
-            lng = request.form.get('lng')
-            height = request.form.get('Pole_Height')
-            f_type = request.form.get('Fixture_Type')
-            l_type = request.form.get('Lamp_Type')
-            status = request.form.get('Pole_Status')
-            ls = request.form.get('Lamp_Status', 'يعمل')
-            door = request.form.get('Door', 'موجود')
-            feeder = request.form.get('Feeder', '')
-            panel_base = request.form.get('Panel_Base', '')
-            depth = request.form.get('Depth', '')
-            flange_size = request.form.get('Flange_Size', '')
-            try:
-                cursor.execute('''
-                    INSERT INTO poles (pole_ID, Pole_Name, lat, lng, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, Lamp_Status, Door, Feeder, Panel_Base, Depth, Flange_Size)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (p_id, p_name, lat, lng, height, f_type, l_type, status, ls, door, feeder, panel_base, depth, flange_size))
-                conn.commit()
-                generate_qr_code(p_id)
-                flash('تم إضافة العمود وتوليد الـ QR بنجاح', 'success')
-            except:
-                flash('معرف العمود موجود مسبقاً', 'danger')
+                    conn.rollback()
+                    conn.close()
+                    return f"<h3 dir='ltr'>EXCEL APPEND ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
         elif action == 'delete_pole':
             p_id = request.form.get('pole_ID')
@@ -359,11 +323,6 @@ def dashboard():
     conn.close()
     
     return render_template('dashboard.html', poles=poles, search=search, admin_info=admin_info, technicians=technicians)
-
-@app.route('/download_all_qrs')
-def download_all_qrs():
-    flash('يرجى تحميل رموز الـ QR الخاصة بكل عمود بشكل فردي من صفحة تفاصيل العمود لتجنب ضغط الخادم.', 'info')
-    return redirect(url_for('dashboard'))
 
 @app.route('/pole/<pole_id>')
 def pole_detail(pole_id):
@@ -409,19 +368,7 @@ def technician_edit(pole_id):
     
     if request.method == 'POST':
         action = request.form.get('action')
-        if action == 'update_my_account':
-            new_u = request.form.get('new_username')
-            new_p = request.form.get('new_password')
-            t_id = session.get('tech_id')
-            try:
-                cursor.execute('UPDATE technicians SET username = ?, password = ? WHERE id = ?', (new_u, new_p, t_id))
-                conn.commit()
-                session['tech_username'] = new_u
-                flash('تم تحديث بيانات حسابك الشخصي بنجاح', 'success')
-            except:
-                flash('اسم المستخدم الجديد مستخدم مسبقاً', 'danger')
-                
-        elif action == 'update_pole_data':
+        if action == 'update_pole_data':
             status = request.form.get('Pole_Status')
             height = request.form.get('Pole_Height')
             f_type = request.form.get('Fixture_Type')
@@ -429,4 +376,38 @@ def technician_edit(pole_id):
             ls = request.form.get('Lamp_Status')
             door = request.form.get('Door')
             feeder = request.form.get('Feeder')
-            panel_base = request.fo
+            panel_base = request.form.get('Panel_Base')
+            depth = request.form.get('Depth')
+            flange_size = request.form.get('Flange_Size')
+            notes = request.form.get('technician_notes')
+            
+            cursor.execute('''
+                UPDATE poles SET Pole_Height = ?, Fixture_Type = ?, Lamp_Type = ?, Pole_Status = ?, Lamp_Status = ?, Door = ?, Feeder = ?, Panel_Base = ?, Depth = ?, Flange_Size = ?, technician_notes = ?, last_updated = CURRENT_TIMESTAMP
+                WHERE pole_ID = ?
+            ''', (height, f_type, l_type, status, ls, door, feeder, panel_base, depth, flange_size, notes, pole_id))
+            conn.commit()
+            flash('تم حفظ تحديثات بيانات العمود بنجاح', 'success')
+
+    cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
+    pole = cursor.fetchone()
+    
+    cursor.execute('SELECT * FROM technicians WHERE id = ?', (session.get('tech_id'),))
+    my_account = cursor.fetchone()
+    
+    conn.close()
+    
+    if not pole:
+        return "العمود غير موجود", 404
+        
+    return render_template('technician_edit.html', pole=pole, my_account=my_account)
+
+@app.route('/technician/logout')
+def technician_logout():
+    pole_id = request.args.get('pole_id', '')
+    session.pop('tech_logged', None)
+    session.pop('tech_id', None)
+    session.pop('tech_username', None)
+    return redirect(url_for('technician_login', pole_id=pole_id))
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)

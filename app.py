@@ -66,8 +66,8 @@ def init_db():
 
 init_db()
 
-def generate_qr_code(pole_id):
-    safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
+def generate_qr_code(pole_ID):
+    safe_id = str(pole_ID).strip().replace('/', '_').replace('\\', '_')
     # جعل الرابط مختصراً جداً لتجنب تجاوز حد حجم الـ QR الأقصى
     url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
     

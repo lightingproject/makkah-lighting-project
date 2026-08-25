@@ -1,7 +1,6 @@
 import os
 import qrcode
 import pandas as pd
-import zipfile
 import io
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.utils import secure_filename
@@ -146,10 +145,8 @@ def dashboard():
                 
                 try:
                     df = pd.read_excel(file_path, engine='openpyxl')
-                    # تنظيف أسماء الأعمدة وتحويلها لنصوص حصراً
                     df.columns = [str(c).strip().lower() for c in df.columns]
                     
-                    # محاولة مرنة جداً لإيجاد أعمدة الجدول الأساسية
                     def find_col(keywords):
                         for col in df.columns:
                             if any(k in col for k in keywords):
@@ -195,7 +192,7 @@ def dashboard():
                         ''', batch)
                         conn.commit()
 
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام!', 'success')
+                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وتحديث الجدول!', 'success')
                 except Exception as e:
                     import traceback
                     error_details = traceback.format_exc()
@@ -244,38 +241,11 @@ def dashboard():
 
 @app.route('/download_all_qrs')
 def download_all_qrs():
-    """مسار معدل لتحميل الأكواد بأمان ودون تعليق السيرفر"""
+    """تنبيه بديل لمنع حدوث خطأ 504 Time-out على السيرفر المجاني"""
     if 'admin_logged' not in session:
         return redirect(url_for('admin_login'))
-        
-    memory_file = io.BytesIO()
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT pole_ID FROM poles')
-    poles = cursor.fetchall()
-    conn.close()
-    
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for pole in poles:
-            pole_id = pole['pole_ID']
-            safe_id = str(pole_id).strip().replace('/', '_').replace('\\', '_')
-            url = f"https://makkah-lighting-project.onrender.com/pole/{safe_id}"
-            
-            img = qrcode.make(url)
-            img_io = io.BytesIO()
-            img.save(img_io, 'PNG')
-            img_io.seek(0)
-            
-            zipf.writestr(f"pole_{safe_id}.png", img_io.read())
-            
-    memory_file.seek(0)
-    
-    return send_file(
-        memory_file,
-        mimetype='application/zip',
-        as_attachment=True,
-        download_name='all_poles_qrs.zip'
-    )
+    flash('خاصية تحميل كافة الأكواد دفعة واحدة تم إيقافها مؤقتاً لتجنب ضغط الخادم. يمكنك طباعة أو حفظ كود أي عمود من صفحة تفاصيل العمود المخصصة له مباشرة.', 'warning')
+    return redirect(url_for('dashboard'))
 
 @app.route('/pole/<pole_id>')
 def pole_detail(pole_id):
@@ -321,10 +291,7 @@ def technician_edit(pole_id):
     
     if request.method == 'POST':
         action = request.form.get('action')
-        
-        if action == 'action == update_my_account': # ملاحظة تصحيحية تم ضبطها في الأسطر أدناه
-            pass
-        elif action == 'update_my_account':
+        if action == 'update_my_account':
             new_u = request.form.get('new_username')
             new_p = request.form.get('new_password')
             t_id = session.get('tech_id')
@@ -372,4 +339,4 @@ def technician_logout():
     return redirect(url_for('technician_login', pole_id=pole_id))
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port5000)

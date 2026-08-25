@@ -197,7 +197,9 @@ elif action == 'upload_excel':
 
                     flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وبدون أي أخطاء!', 'success')
                 except Exception as e:
-                    flash(f'خطأ في معالجة ملف الاكسل: {str(e)}', 'danger')
+                    import traceback
+                    error_details = traceback.format_exc()
+                    return f"<h3 style='color: red; direction: ltr;'>حدث خطأ برمجي خطير:</h3><pre style='background: #333; color: #fff; padding: 15px; direction: ltr;'>{error_details}</pre>", 500
 
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')

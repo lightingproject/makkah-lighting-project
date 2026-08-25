@@ -146,11 +146,9 @@ elif action == 'upload_excel':
                 file.save(file_path)
                 
                 try:
-                    # قراءة الملف دفعة واحدة وسرعة فائقة
-                    df = pd.read_excel(file_path)
+                    df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = df.columns.str.strip().str.lower()
                     
-                    # البحث الذكي عن أسماء الأعمدة بغض النظر عن حالة الأحرف
                     def find_col(possible_names):
                         for col in df.columns:
                             if any(name in col for name in possible_names):
@@ -165,11 +163,10 @@ elif action == 'upload_excel':
                     lat_col = find_col(['lat', 'latitude', 'y'])
                     lng_col = find_col(['lng', 'long', 'longitude', 'x'])
 
-                    # تجهيز البيانات كقائمة من الحزم (Tuples) دفعة واحدة
                     data_to_insert = []
                     for _, row in df.iterrows():
                         p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
-                        if not p_id or p_id.lower() == 'nan':
+                        if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
                             
                         height = str(row[height_col]).strip() if height_col and pd.notna(row[height_col]) else ''
@@ -181,26 +178,25 @@ elif action == 'upload_excel':
                         
                         data_to_insert.append((p_id, height, f_type, l_type, status, lat, lng))
 
-                    # استخدام المعاملات الجماعية (executemany) لإدخال البيانات في قاعدة البيانات بسرعة خيالية
-                    cursor.executemany('''
-                        INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(pole_ID) DO UPDATE SET
-                        Pole_Height=excluded.Pole_Height,
-                        Fixture_Type=excluded.Fixture_Type,
-                        Lamp_Type=excluded.Lamp_Type,
-                        Pole_Status=excluded.Pole_Status,
-                        lat=excluded.lat,
-                        lng=excluded.lng
-                    ''', data_to_insert)
-                    conn.commit()
+                    batch_size = 1000
+                    for i in range(0, len(data_to_insert), batch_size):
+                        batch = data_to_insert[i:i + batch_size]
+                        cursor.executemany('''
+                            INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(pole_ID) DO UPDATE SET
+                            Pole_Height=excluded.Pole_Height,
+                            Fixture_Type=excluded.Fixture_Type,
+                            Lamp_Type=excluded.Lamp_Type,
+                            Pole_Status=excluded.Pole_Status,
+                            lat=excluded.lat,
+                            lng=excluded.lng
+                        ''', batch)
+                        conn.commit()
 
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وبدون أي أخطاء!', 'success')
+                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود إنارة بنجاح تام!', 'success')
                 except Exception as e:
-                    import traceback
-                    error_details = traceback.format_exc()
-                    return f"<h3 style='color: red; direction: ltr;'>حدث خطأ برمجي خطير:</h3><pre style='background: #333; color: #fff; padding: 15px; direction: ltr;'>{error_details}</pre>", 500
-
+                    flash(f'خطأ أثناء قراءة الملف: {str(e)}', 'danger')
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')
             height = request.form.get('Pole_Height')

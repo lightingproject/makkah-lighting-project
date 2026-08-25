@@ -136,6 +136,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
+        # 1. تحديث جدول جديد (مسح البيانات القديمة بالكامل واعتماد الجديد)
         elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -161,6 +162,10 @@ def dashboard():
                     lat_col = find_col(['lat', 'latitude'])
                     lng_col = find_col(['lng', 'long', 'longitude'])
 
+                    # مسح البيانات القديمة تماماً بناءً على طلبك الأول
+                    cursor.execute('DELETE FROM poles')
+                    conn.commit()
+
                     data_to_insert = []
                     for _, row in df.iterrows():
                         p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
@@ -175,11 +180,60 @@ def dashboard():
                         lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
                         
                         data_to_insert.append((p_id, h, f, l, s, lat, lng))
+                        generate_qr_code(p_id)
 
-                    batch_size = 500
-                    for i in range(0, len(data_to_insert), batch_size):
-                        batch = data_to_insert[i:i + batch_size]
-                        cursor.executemany('''
+                    cursor.executemany('''
+                        INSERT OR REPLACE INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', data_to_insert)
+                    conn.commit()
+
+                    flash(f'تم مسح البيانات القديمة ورفع {len(data_to_insert)} عمود جديد بنجاح!', 'success')
+                except Exception as e:
+                    import traceback
+                    return f"<h3 dir='ltr'>ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
+
+        # 2. إضافة بيانات جديدة فوق البيانات القديمة دون حذفها (بناءً على طلبك الثاني)
+        elif action == 'append_excel':
+            file = request.files.get('excel_file')
+            if file and file.filename.endswith(('.xlsx', '.xls')):
+                filename = secure_filename(file.filename)
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(file_path)
+                
+                try:
+                    df = pd.read_excel(file_path, engine='openpyxl')
+                    df.columns = [str(c).strip().lower() for c in df.columns]
+                    
+                    def find_col(keywords):
+                        for col in df.columns:
+                            if any(k in col for k in keywords):
+                                return col
+                        return None
+
+                    id_col = find_col(['pole_id', 'id', 'pole', 'العمود', 'رقم']) or df.columns[0]
+                    h_col = find_col(['height', 'pole_height', 'ارتفاع'])
+                    f_col = find_col(['fixture', 'fixture_type', 'فانوس', 'كشاف'])
+                    l_col = find_col(['lamp', 'lamp_type', 'لمبة', 'قدرة'])
+                    s_col = find_col(['status', 'pole_status', 'حالة'])
+                    lat_col = find_col(['lat', 'latitude'])
+                    lng_col = find_col(['lng', 'long', 'longitude'])
+
+                    added_count = 0
+                    for _, row in df.iterrows():
+                        p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
+                        if not p_id or p_id.lower() == 'nan' or p_id == '':
+                            continue
+                            
+                        h = str(row[h_col]).strip() if h_col and pd.notna(row[h_col]) else ''
+                        f = str(row[f_col]).strip() if f_col and pd.notna(row[f_col]) else ''
+                        l = str(row[l_col]).strip() if l_col and pd.notna(row[l_col]) else ''
+                        s = str(row[s_col]).strip() if s_col and pd.notna(row[s_col]) else 'سليم'
+                        lat = str(row[lat_col]).strip() if lat_col and pd.notna(row[lat_col]) else ''
+                        lng = str(row[lng_col]).strip() if lng_col and pd.notna(row[lng_col]) else ''
+                        
+                        # إضافة أو تحديث العمود المضاف حديثاً دون المساس بباقي الجدول القديم
+                        cursor.execute('''
                             INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(pole_ID) DO UPDATE SET
@@ -189,14 +243,15 @@ def dashboard():
                             Pole_Status=excluded.Pole_Status,
                             lat=excluded.lat,
                             lng=excluded.lng
-                        ''', batch)
-                        conn.commit()
+                        ''', (p_id, h, f, l, s, lat, lng))
+                        generate_qr_code(p_id)
+                        added_count += 1
 
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام وتحديث الجدول!', 'success')
+                    conn.commit()
+                    flash(f'تمت إضافة أو تحديث {added_count} عمود بنجاح مع الاحتفاظ بالبيانات السابقة!', 'success')
                 except Exception as e:
                     import traceback
-                    error_details = traceback.format_exc()
-                    return f"<h3 dir='ltr'>ERROR DETAILS:</h3><pre>{error_details}</pre>", 500
+                    return f"<h3 dir='ltr'>ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
         elif action == 'add_pole':
             p_id = request.form.get('pole_ID')
@@ -238,14 +293,6 @@ def dashboard():
     conn.close()
     
     return render_template('dashboard.html', poles=poles, search=search, admin_info=admin_info, technicians=technicians)
-
-@app.route('/download_all_qrs')
-def download_all_qrs():
-    """تنبيه بديل لمنع حدوث خطأ 504 Time-out على السيرفر المجاني"""
-    if 'admin_logged' not in session:
-        return redirect(url_for('admin_login'))
-    flash('خاصية تحميل كافة الأكواد دفعة واحدة تم إيقافها مؤقتاً لتجنب ضغط الخادم. يمكنك طباعة أو حفظ كود أي عمود من صفحة تفاصيل العمود المخصصة له مباشرة.', 'warning')
-    return redirect(url_for('dashboard'))
 
 @app.route('/pole/<pole_id>')
 def pole_detail(pole_id):

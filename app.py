@@ -139,7 +139,7 @@ def dashboard():
             flash('تم حذف حساب الفني بنجاح', 'info')
 
 # معالجة رفع ملف الاكسل وتحديث البيانات
-        elif action == 'upload_excel':
+       elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
                 filename = secure_filename(file.filename)
@@ -147,22 +147,26 @@ def dashboard():
                 file.save(file_path)
                 
                 try:
+                    # قراءة الملف باستخدام الـ chunks أو قراءة سريعة آمنة
                     df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = df.columns.str.strip().str.lower()
                     
-                    id_col = df.columns[0]
+                    # البحث عن اسم العمود الخاص بالـ ID
+                    id_col = None
                     for col in df.columns:
-                        if 'pole_id' in col or 'id' in col:
+                        if 'pole_id' in col or 'id' in col or 'pole' in col:
                             id_col = col
                             break
-                            
+                    if not id_col:
+                        id_col = df.columns[0]
+
+                    # تجهيز البيانات للإدخال الجماعي
                     data_to_insert = []
                     for _, row in df.iterrows():
                         p_id = str(row[id_col]).strip() if pd.notna(row[id_col]) else ''
-                        if not p_id or p_id.lower() == 'nan':
+                        if not p_id or p_id.lower() == 'nan' or p_id == '':
                             continue
-                        
-                        # استخراج القيم بشكل آمن
+                            
                         h = str(row.get('pole_height', row.get('height', ''))).strip()
                         f = str(row.get('fixture_type', row.get('fixture', ''))).strip()
                         l = str(row.get('lamp_type', row.get('lamp', ''))).strip()
@@ -172,8 +176,10 @@ def dashboard():
                         
                         data_to_insert.append((p_id, h, f, l, s, lat, lng))
 
-                    # إدخال دفعة واحدة لتسريع العملية ومنع الانهيار
-                    if data_to_insert:
+                    # إدخال البيانات على دفعات (كل 500 صف معاً) لتجنب تعليق السيرفر
+                    batch_size = 500
+                    for i in range(0, len(data_to_insert), batch_size):
+                        batch = data_to_insert[i:i + batch_size]
                         cursor.executemany('''
                             INSERT INTO poles (pole_ID, Pole_Height, Fixture_Type, Lamp_Type, Pole_Status, lat, lng)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -184,13 +190,13 @@ def dashboard():
                             Pole_Status=excluded.Pole_Status,
                             lat=excluded.lat,
                             lng=excluded.lng
-                        ''', data_to_insert)
+                        ''', batch)
                         conn.commit()
 
-                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح!', 'success')
+                    flash(f'تم رفع وتحديث {len(data_to_insert)} عمود بنجاح تام!', 'success')
                 except Exception as e:
-                    flash(f'خطأ أثناء معالجة ملف الأكسل: {str(e)}', 'danger')
-
+                    # في حال حدث أي خطأ، سيظهر لك كرسالة حمراء واضحة بدلاً من الصفحة البيضاء
+                    flash(فشل رفع الملف بسبب: {str(e)}, 'danger')
         elif action == 'add_pole':
             # باقي الكود الخاص بالإضافة اليدوية...
             p_id = request.form.get('pole_ID')

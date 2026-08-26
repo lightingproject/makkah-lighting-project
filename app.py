@@ -6,14 +6,13 @@ from flask_sqlalchemy import SQLAlchemy
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'makkah_lighting_secret_key_2026'
 
-# تصحيح مسار قاعدة البيانات ليعمل بسلاسة على السيرفر المحلي أو المنصات السحابية مثل Render
+# ضبط مسار قاعدة البيانات المطلق
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'makkah_lighting.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# جدول قاعدة البيانات الخاص بأعمدة الإنارة
 class LightingPole(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     pole_id = db.Column(db.String(50), unique=True, nullable=False)
@@ -24,24 +23,30 @@ class LightingPole(db.Model):
     lamp_type = db.Column(db.String(50))
     pole_status = db.Column(db.String(50))
     lamp_status = db.Column(db.String(50))
+    door_status = db.Context = db.Column(db.String(50)) if hasattr(db, 'Column') else None # Fallback
     door_status = db.Column(db.String(50))
     feeder_panel = db.Column(db.String(50))
     base_depth = db.Column(db.String(50))
     flange_size = db.Column(db.String(50))
 
-# إنشاء الجداول بطريقة آمنة ومتوافقة مع جميع الإصدارات
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+    except Exception as e:
+        print(f"Database Creation Error: {e}")
 
 @app.route('/')
 def index():
-    page = request.args.get('page', 1, type=int)
-    per_page = 20
-    pagination = LightingPole.query.paginate(page=page, per_page=per_page, error_out=False)
-    poles = pagination.items
-    return render_template('index.html', poles=poles, pagination=pagination)
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = 20
+        pagination = LightingPole.query.paginate(page=page, per_page=per_page, error_out=False)
+        poles = pagination.items
+        return render_template('index.html', poles=poles, pagination=pagination)
+    except Exception as e:
+        # إظهار الخطأ التقني مباشرة على الصفحة بدلاً من شاشة 500 المبهمة
+        return f"<h3>حدث خطأ تقني في التطبيق:</h3><pre>{str(e)}</pre>", 500
 
-# مسار رفع ومعالجة ملف الـ CSV
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():
     if 'file' not in request.files:

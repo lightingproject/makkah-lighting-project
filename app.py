@@ -1,435 +1,119 @@
 import os
-import re
+import qrcode
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, session, flash
-from werkzeug.utils import secure_filename
-import sqlite3
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.secret_key = 'makkah_lighting_secret_key_2026'
+app.config['SECRET_KEY'] = 'makkah_lighting_secret_key_2026'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///makkah_lighting.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-DB_NAME = 'lighting_database.db'
-UPLOAD_FOLDER = 'uploads'
+db = SQLAlchemy(app)
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# مجلد تخزين صور الـ QR Codes
+QR_FOLDER = os.path.join('static', 'qrcodes')
+os.makedirs(QR_FOLDER, exist_ok=True)
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_NAME, timeout=60.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    return conn
+# جدول قاعدة البيانات الخاص بأعمدة الإنارة
+class LightingPole(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    pole_id = db.Column(db.String(50), unique=True, nullable=False)
+    latitude = db.Column(db.Float, nullable=False)
+    longitude = db.Column(db.Float, nullable=False)
+    pole_name = db.Column(db.String(100))
+    qr_image = db.Column(db.String(200))
+    pole_height = db.Column(db.String(50))
+    lamp_type = db.Column(db.String(50))
+    pole_status = db.Column(db.String(50))
+    lamp_status = db.Column(db.String(50))
+    door_status = db.Column(db.String(50))
+    feeder_panel = db.Column(db.String(50))
+    base_depth = db.Column(db.String(50))
+    flange_size = db.Column(db.String(50))
 
-def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS poles (
-            pole_ID TEXT PRIMARY KEY
-        )
-    ''')
-    
-    cursor.execute("PRAGMA table_info(poles);")
-    existing_columns = [col['name'] for col in cursor.fetchall()]
-    
-    required_columns = {
-        'Latitude': 'TEXT',
-        'Longitude': 'TEXT',
-        'Pole_Name': 'TEXT',
-        'QR_image': 'TEXT',
-        'Pole_Height': 'TEXT',
-        'Lamp_Type': 'TEXT',
-        'Pole_Status': 'TEXT',
-        'Lamp_Status': 'TEXT',
-        'Door_Status': 'TEXT',
-        'Feeder': 'TEXT',
-        'Panel_No': 'TEXT',
-        'Base_Depth': 'TEXT',
-        'Flange_Size': 'TEXT',
-        'technician_notes': 'TEXT',
-        'last_updated': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
-    }
-    
-    for col_name, col_type in required_columns.items():
-        if col_name not in existing_columns:
-            try:
-                cursor.execute(f"ALTER TABLE poles ADD COLUMN {col_name} {col_type};")
-            except:
-                pass
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS admin_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            password TEXT NOT NULL
-        )
-    ''')
-    
-    cursor.execute('SELECT COUNT(*) FROM admin_config')
-    if cursor.fetchone()[0] == 0:
-        cursor.execute('INSERT INTO admin_config (username, password) VALUES (?, ?)', ('admin', 'admin123'))
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS technicians (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            full_name TEXT
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-init_db()
+with app.app_context():
+    db.create_all()
 
 @app.route('/')
 def index():
-    if 'admin_logged' in session:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('admin_login'))
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    pagination = LightingPole.query.paginate(page=page, per_page=per_page, error_out=False)
+    poles = pagination.items
+    return render_template('index.html', poles=poles, pagination=pagination)
 
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if request.method == 'POST':
-        u = request.form.get('username')
-        p = request.form.get('password')
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM admin_config WHERE username = ? AND password = ?', (u, p))
-        admin = cursor.fetchone()
-        conn.close()
-        if admin:
-            session['admin_logged'] = True
-            return redirect(url_for('dashboard'))
-        flash('بيانات الدخول غير صحيحة', 'danger')
-    return render_template('login.html')
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin_logged', None)
-    return redirect(url_for('admin_login'))
-
-@app.route('/admin/dashboard', methods=['GET', 'POST'])
-def dashboard():
-    if 'admin_logged' not in session:
-        return redirect(url_for('admin_login'))
+# مسار رفع ومعالجة ملف الـ CSV على دفعات (Chunks) لمنع انهيار السيرفر واستنزاف الذاكرة
+@app.route('/upload_csv', methods=['POST'])
+def upload_csv():
+    if 'file' not in request.files:
+        flash('لم يتم اختيار أي ملف', 'danger')
+        return redirect(url_for('index'))
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    if request.method == 'POST':
-        action = request.form.get('action')
+    file = request.files['file']
+    if file.filename == '':
+        flash('اسم الملف فارغ', 'danger')
+        return redirect(url_for('index'))
+    
+    if file and file.filename.endswith('.csv'):
+        file_path = os.path.join('uploads', file.filename)
+        os.makedirs('uploads', exist_ok=True)
+        file.save(file_path)
         
-        if action == 'update_admin':
-            new_user = request.form.get('admin_username')
-            new_pass = request.form.get('admin_password')
-            if new_user and new_pass:
-                cursor.execute('UPDATE admin_config SET username = ?, password = ? WHERE id = 1', (new_user, new_pass))
-                conn.commit()
-                flash('تم تحديث بيانات دخول الإدارة بنجاح', 'success')
-
-        elif action == 'add_tech':
-            t_user = request.form.get('tech_username')
-            t_pass = request.form.get('tech_password')
-            t_name = request.form.get('tech_name')
-            try:
-                cursor.execute('INSERT INTO technicians (username, password, full_name) VALUES (?, ?, ?)', (t_user, t_pass, t_name))
-                conn.commit()
-                flash('تم إضافة حساب الفني بنجاح', 'success')
-            except:
-                flash('اسم المستخدم للفني موجود مسبقاً', 'danger')
-
-        elif action == 'delete_tech':
-            t_id = request.form.get('tech_id')
-            cursor.execute('DELETE FROM technicians WHERE id = ?', (t_id,))
-            conn.commit()
-            flash('تم حذف حساب الفني بنجاح', 'info')
-
-        # خيار استبدال البيانات (معالجة الملف وقسمته لدفعات برمجياً)
-        elif action == 'upload_excel':
-            file = request.files.get('excel_file')
-            if file and file.filename.endswith(('.xlsx', '.xls')):
-                filename = secure_filename(file.filename)
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(file_path)
+        try:
+            total_imported = 0
+            # قراءة ملف الـ CSV على دفعات (مثلاً 1000 صف في كل دفعة) بترميز يدعم العربية
+            chunk_size = 1000
+            for chunk in pd.read_csv(file_path, chunksize=chunk_size, encoding='utf-8-sig'):
+                # تنظيف الأسماء أو ملء القيم الفارغة لتجنب أخطاء البيانات
+                chunk = chunk.fillna('')
                 
-                try:
-                    df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = [str(c).strip() for c in df.columns]
+                for _, row in chunk.iterrows():
+                    p_id = str(row.get('Pole_ID', '')).strip()
+                    if not p_id:
+                        continue
                     
-                    cursor.execute('DELETE FROM poles')
-                    conn.commit()
-
-                    data_to_insert = []
-                    total_inserted = 0
-                    batch_size = 1000
-
-                    for _, row in df.iterrows():
-                        def get_col_val(col_names, default=''):
-                            for name in col_names:
-                                if name in df.columns:
-                                    val = row[name]
-                                    if pd.notna(val):
-                                        return str(val).strip()
-                            return default
-
-                        p_id = get_col_val(['Pole_ID', 'pole_id', 'id', 'العمود', 'رقم'])
-                        if not p_id or str(p_id).lower() == 'nan' or p_id == '':
-                            continue
-                            
-                        lat = get_col_val(['Latitude', 'lat', 'خط_العرض', 'عرض'])
-                        lng = get_col_val(['Longitude', 'lng', 'طول', 'خط_الطول'])
-                        p_name = get_col_val(['Pole_Name', 'name', 'اسم'])
-                        qr_img = get_col_val(['QR_image', 'qr', 'صورة_الكيو_ار'])
-                        h = get_col_val(['Pole_Height', 'height', 'ارتفاع'])
-                        lamp_type = get_col_val(['Lamp_Type', 'lamp', 'قدرة'])
-                        p_status = get_col_val(['Pole_Status', 'status', 'حالة العمود'], 'سليم')
-                        l_status = get_col_val(['Lamp_Status', 'حالة المصباح'], 'يعمل')
-                        door_status = get_col_val(['Door_Status', 'door', 'الباب'], 'مغلق')
-                        feeder = get_col_val(['Feeder', 'مغذى'])
-                        panel_no = get_col_val(['Panel_No', 'panel', 'قاعدة'])
-                        base_depth = get_col_val(['Base_Depth', 'depth', 'عمق'])
-                        flange_size = get_col_val(['Flange_Size', 'flange', 'فلانشة'])
-                        
-                        data_to_insert.append((p_id, lat, lng, p_name, qr_img, h, lamp_type, p_status, l_status, door_status, feeder, panel_no, base_depth, flange_size))
-
-                        if len(data_to_insert) >= batch_size:
-                            cursor.executemany('''
-                                INSERT OR REPLACE INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', data_to_insert)
-                            conn.commit()
-                            total_inserted += len(data_to_insert)
-                            data_to_insert = []
-
-                    # إدخال المتبقي
-                    if len(data_to_insert) > 0:
-                        cursor.executemany('''
-                            INSERT OR REPLACE INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', data_to_insert)
-                        conn.commit()
-                        total_inserted += len(data_to_insert)
-
-                    if total_inserted > 0:
-                        flash(f'تم استبدال البيانات بنجاح ورفع {total_inserted} عمود!', 'success')
-                    else:
-                        flash('الملف لا يحتوي على صفوف صالحة أو مطابقة لأسماء الأعمدة!', 'danger')
-
-                except Exception as e:
-                    import traceback
-                    conn.rollback()
-                    return f"<h3 dir='ltr'>EXCEL UPLOAD ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
-
-        # خيار الإضافة والتحديث (Append) على دفعات برمجية
-        elif action == 'append_excel':
-            file = request.files.get('excel_file')
-            if file and file.filename.endswith(('.xlsx', '.xls')):
-                filename = secure_filename(file.filename)
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(file_path)
+                    # التحقق إذا كان العمود موجوداً مسبقاً لتحديثه أو إضافته
+                    pole = LightingPole.query.filter_by(pole_id=p_id).first()
+                    
+                    # توليد QR Code لكل عمود إنارة
+                    qr_filename = f"{p_id}.png"
+                    qr_path = os.path.join(QR_FOLDER, qr_filename)
+                    if not os.path.exists(qr_path):
+                        img = qrcode.make(f"Pole ID: {p_id}")
+                        img.save(qr_path)
+                    
+                    if not pole:
+                        pole = LightingPole(pole_id=p_id)
+                        db.session.add(pole)
+                    
+                    pole.latitude = float(row.get('Latitude', 0.0) or 0.0)
+                    pole.longitude = float(row.get('Longitude', 0.0) or 0.0)
+                    pole.pole_name = str(row.get('Pole_Name', ''))
+                    pole.qr_image = url_for('static', filename=f'qrcodes/{qr_filename}')
+                    pole.pole_height = str(row.get('Pole_Height', ''))
+                    pole.lamp_type = str(row.get('Lamp_Type', ''))
+                    pole.pole_status = str(row.get('Pole_Status', ''))
+                    pole.lamp_status = str(row.get('Lamp_Status', ''))
+                    pole.door_status = str(row.get('Door_Status', ''))
+                    pole.feeder_panel = str(row.get('Feeder_Panel', ''))
+                    pole.base_depth = str(row.get('Base_Depth', ''))
+                    pole.flange_size = str(row.get('Flange_Size', ''))
+                    
+                    total_imported += 1
                 
-                try:
-                    df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = [str(c).strip() for c in df.columns]
-                    
-                    data_to_insert = []
-                    total_processed = 0
-                    batch_size = 1000
-
-                    for _, row in df.iterrows():
-                        def get_col_val(col_names, default=''):
-                            for name in col_names:
-                                if name in df.columns:
-                                    val = row[name]
-                                    if pd.notna(val):
-                                        return str(val).strip()
-                            return default
-
-                        p_id = get_col_val(['Pole_ID', 'pole_id', 'id', 'العمود', 'رقم'])
-                        if not p_id or str(p_id).lower() == 'nan' or p_id == '':
-                            continue
-                            
-                        lat = get_col_val(['Latitude', 'lat', 'خط_العرض', 'عرض'])
-                        lng = get_col_val(['Longitude', 'lng', 'طول', 'خط_الطول'])
-                        p_name = get_col_val(['Pole_Name', 'name', 'اسم'])
-                        qr_img = get_col_val(['QR_image', 'qr', 'صورة_الكيو_ار'])
-                        h = get_col_val(['Pole_Height', 'height', 'ارتفاع'])
-                        lamp_type = get_col_val(['Lamp_Type', 'lamp', 'قدرة'])
-                        p_status = get_col_val(['Pole_Status', 'status', 'حالة العمود'], 'سليم')
-                        l_status = get_col_val(['Lamp_Status', 'حالة المصباح'], 'يعمل')
-                        door_status = get_col_val(['Door_Status', 'door', 'الباب'], 'مغلق')
-                        feeder = get_col_val(['Feeder', 'مغذى'])
-                        panel_no = get_col_val(['Panel_No', 'panel', 'قاعدة'])
-                        base_depth = get_col_val(['Base_Depth', 'depth', 'عمق'])
-                        flange_size = get_col_val(['Flange_Size', 'flange', 'فلانشة'])
-                        
-                        data_to_insert.append((p_id, lat, lng, p_name, qr_img, h, lamp_type, p_status, l_status, door_status, feeder, panel_no, base_depth, flange_size))
-
-                        if len(data_to_insert) >= batch_size:
-                            cursor.executemany('''
-                                INSERT INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                ON CONFLICT(pole_ID) DO UPDATE SET
-                                Latitude=excluded.Latitude,
-                                Longitude=excluded.Longitude,
-                                Pole_Name=excluded.Pole_Name,
-                                QR_image=excluded.QR_image,
-                                Pole_Height=excluded.Pole_Height,
-                                Lamp_Type=excluded.Lamp_Type,
-                                Pole_Status=excluded.Pole_Status,
-                                Lamp_Status=excluded.Lamp_Status,
-                                Door_Status=excluded.Door_Status,
-                                Feeder=excluded.Feeder,
-                                Panel_No=excluded.Panel_No,
-                                Base_Depth=excluded.Base_Depth,
-                                Flange_Size=excluded.Flange_Size
-                            ''', data_to_insert)
-                            conn.commit()
-                            total_processed += len(data_to_insert)
-                            data_to_insert = []
-
-                    # إدخال المتبقي
-                    if len(data_to_insert) > 0:
-                        cursor.executemany('''
-                            INSERT INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(pole_ID) DO UPDATE SET
-                            Latitude=excluded.Latitude,
-                            Longitude=excluded.Longitude,
-                            Pole_Name=excluded.Pole_Name,
-                            QR_image=excluded.QR_image,
-                            Pole_Height=excluded.Pole_Height,
-                            Lamp_Type=excluded.Lamp_Type,
-                            Pole_Status=excluded.Pole_Status,
-                            Lamp_Status=excluded.Lamp_Status,
-                            Door_Status=excluded.Door_Status,
-                            Feeder=excluded.Feeder,
-                            Panel_No=excluded.Panel_No,
-                            Base_Depth=excluded.Base_Depth,
-                            Flange_Size=excluded.Flange_Size
-                        ''', data_to_insert)
-                        conn.commit()
-                        total_processed += len(data_to_insert)
-
-                    if total_processed > 0:
-                        flash(f'تمت إضافة وتحديث {total_processed} عمود بنجاح!', 'success')
-                    else:
-                        flash('الملف لا يحتوي على صفوف صالحة للإضافة!', 'danger')
-
-                except Exception as e:
-                    import traceback
-                    conn.rollback()
-                    return f"<h3 dir='ltr'>EXCEL APPEND ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
-
-        elif action == 'delete_pole':
-            p_id = request.form.get('pole_ID')
-            cursor.execute('DELETE FROM poles WHERE pole_ID = ?', (p_id,))
-            conn.commit()
-            flash('تم حذف العمود بنجاح', 'info')
-
-    cursor.execute('SELECT * FROM admin_config WHERE id = 1')
-    admin_info = cursor.fetchone()
-    cursor.execute('SELECT * FROM technicians')
-    technicians = cursor.fetchall()
-
-    search = request.args.get('search', '')
-    if search:
-        cursor.execute("SELECT * FROM poles WHERE pole_ID LIKE ? OR Pole_Name LIKE ? OR Lamp_Type LIKE ?", ('%' + search + '%', '%' + search + '%', '%' + search + '%'))
-    else:
-        cursor.execute('SELECT * FROM poles')
-    
-    poles = cursor.fetchall()
-    conn.close()
-    
-    return render_template('dashboard.html', poles=poles, search=search, admin_info=admin_info, technicians=technicians)
-
-@app.route('/pole/<pole_id>')
-def pole_detail(pole_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
-    pole = cursor.fetchone()
-    conn.close()
-    
-    if not pole:
-        return "العمود غير موجود", 404
-    return render_template('pole_detail.html', pole=pole)
-
-@app.route('/technician/login', methods=['GET', 'POST'])
-def technician_login():
-    pole_id = request.args.get('pole_id', '')
-    if request.method == 'POST':
-        u = request.form.get('username')
-        p = request.form.get('password')
-        target_pole = request.form.get('pole_id')
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM technicians WHERE username = ? AND password = ?', (u, p))
-        tech = cursor.fetchone()
-        conn.close()
-        
-        if tech:
-            session['tech_logged'] = True
-            session['tech_id'] = tech['id']
-            session['tech_username'] = tech['username']
-            return redirect(url_for('technician_edit', pole_id=target_pole))
-        flash('بيانات دخول الفني خاطئة', 'danger')
-    return render_template('technician_login.html', pole_id=pole_id)
-
-@app.route('/technician/edit/<pole_id>', methods=['GET', 'POST'])
-def technician_edit(pole_id):
-    if 'tech_logged' not in session:
-        return redirect(url_for('technician_login', pole_id=pole_id))
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    if request.method == 'POST':
-        action = request.form.get('action')
-        if action == 'update_pole_data':
-            status = request.form.get('Pole_Status')
-            height = request.form.get('Pole_Height')
-            l_type = request.form.get('Lamp_Type')
-            ls = request.form.get('Lamp_Status')
-            door_status = request.form.get('Door_Status')
-            feeder = request.form.get('Feeder')
-            panel_no = request.form.get('Panel_No')
-            base_depth = request.form.get('Base_Depth')
-            flange_size = request.form.get('Flange_Size')
-            notes = request.form.get('technician_notes')
+                # حفظ الدفعة الحالية في قاعدة البيانات لتقليل استهلاك الذاكرة
+                db.session.commit()
             
-            cursor.execute('''
-                UPDATE poles SET Pole_Height = ?, Lamp_Type = ?, Pole_Status = ?, Lamp_Status = ?, Door_Status = ?, Feeder = ?, Panel_No = ?, Base_Depth = ?, Flange_Size = ?, technician_notes = ?, last_updated = CURRENT_TIMESTAMP
-                WHERE pole_ID = ?
-            ''', (height, l_type, status, ls, door_status, feeder, panel_no, base_depth, flange_size, notes, pole_id))
-            conn.commit()
-            flash('تم حفظ تحديثات بيانات العمود بنجاح', 'success')
-
-    cursor.execute('SELECT * FROM poles WHERE pole_ID = ?', (pole_id,))
-    pole = cursor.fetchone()
-    
-    cursor.execute('SELECT * FROM technicians WHERE id = ?', (session.get('tech_id'),))
-    my_account = cursor.fetchone()
-    
-    conn.close()
-    
-    if not pole:
-        return "العمود غير موجود", 404
+            flash(f'تم استيراد ومعالجة {total_imported} عمود إنارة بنجاح على دفعات!', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'حدث خطأ أثناء معالجة الملف: {str(e)}', 'danger')
         
-    return render_template('technician_edit.html', pole=pole, my_account=my_account)
-
-@app.route('/technician/logout')
-def technician_logout():
-    pole_id = request.args.get('pole_id', '')
-    session.pop('tech_logged', None)
-    session.pop('tech_id', None)
-    session.pop('tech_username', None)
-    return redirect(url_for('technician_login', pole_id=pole_id))
+        return redirect(url_for('index'))
+    else:
+        flash('يرجى رفع ملف بصيغة CSV مدعوم بترميز UTF-8', 'danger')
+        return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True)

@@ -1,9 +1,8 @@
 import os
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 
-# تحديد مسارات المجلدات بدقة لتعمل على السيرفر السحابي بدون أخطاء
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__, template_folder=os.path.join(basedir, 'templates'), static_folder=os.path.join(basedir, 'static'))
 
@@ -41,11 +40,21 @@ def index():
         per_page = 20
         pagination = LightingPole.query.paginate(page=page, per_page=per_page, error_out=False)
         poles = pagination.items
-        # تم تعديل اسم الملف ليطابق الملفات الموجودة لديك في مجلد templates
         return render_template('dashboard.html', poles=poles, pagination=pagination)
     except Exception as e:
         return f"<h3>خطأ في القالب:</h3><pre>{str(e)}</pre>", 500
-        
+
+# مسارات تسجيل الدخول والخروج لتجنب أخطاء url_for الناقصة
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    return render_template('login.html')
+
+@app.route('/admin_logout')
+def admin_logout():
+    session.clear()
+    flash('تم تسجيل الخروج بنجاح', 'success')
+    return redirect(url_for('index'))
+
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():
     if 'file' not in request.files:

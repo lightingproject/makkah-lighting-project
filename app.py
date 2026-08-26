@@ -15,7 +15,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME, timeout=30.0)
+    conn = sqlite3.connect(DB_NAME, timeout=60.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
@@ -25,14 +25,12 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # إنشاء الجدول الأساسي إذا لم يكن موجوداً
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS poles (
             pole_ID TEXT PRIMARY KEY
         )
     ''')
     
-    # التأكد من وجود كافة الأعمدة المطلوبة وتحديث الجدول تلقائياً إن لم تكن موجودة
     cursor.execute("PRAGMA table_info(poles);")
     existing_columns = [col['name'] for col in cursor.fetchall()]
     
@@ -150,7 +148,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-        # خيار استبدال البيانات بالكامل
+        # خيار استبدال البيانات (يدعم الملفات الكبيرة جداً عبر التقسيم لدفعات)
         elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -159,50 +157,54 @@ def dashboard():
                 file.save(file_path)
                 
                 try:
-                    df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = [str(c).strip() for c in df.columns]
-                    
-                    data_to_insert = []
-                    for _, row in df.iterrows():
-                        def get_col_val(col_names, default=''):
-                            for name in col_names:
-                                if name in df.columns:
-                                    val = row[name]
-                                    if pd.notna(val):
-                                        return str(val).strip()
-                            return default
+                    total_inserted = 0
+                    cursor.execute('DELETE FROM poles')
+                    conn.commit()
 
-                        p_id = get_col_val(['Pole_ID', 'pole_id', 'id', 'العمود', 'رقم'])
-                        if not p_id or p_id.lower() == 'nan' or p_id == '':
-                            continue
+                    # قراءة الملف على دفعات (Chunks) لعدم استهلاك الذاكرة
+                    chunk_size = 1000
+                    for chunk in pd.read_excel(file_path, engine='openpyxl', chunksize=chunk_size):
+                        chunk.columns = [str(c).strip() for c in chunk.columns]
+                        data_to_insert = []
+                        for _, row in chunk.iterrows():
+                            def get_col_val(col_names, default=''):
+                                for name in col_names:
+                                    if name in chunk.columns:
+                                        val = row[name]
+                                        if pd.notna(val):
+                                            return str(val).strip()
+                                return default
+
+                            p_id = get_col_val(['Pole_ID', 'pole_id', 'id', 'العمود', 'رقم'])
+                            if not p_id or str(p_id).lower() == 'nan' or p_id == '':
+                                continue
+                                
+                            lat = get_col_val(['Latitude', 'lat', 'خط_العرض', 'عرض'])
+                            lng = get_col_val(['Longitude', 'lng', 'طول', 'خط_الطول'])
+                            p_name = get_col_val(['Pole_Name', 'name', 'اسم'])
+                            qr_img = get_col_val(['QR_image', 'qr', 'صورة_الكيو_ار'])
+                            h = get_col_val(['Pole_Height', 'height', 'ارتفاع'])
+                            lamp_type = get_col_val(['Lamp_Type', 'lamp', 'قدرة'])
+                            p_status = get_col_val(['Pole_Status', 'status', 'حالة العمود'], 'سليم')
+                            l_status = get_col_val(['Lamp_Status', 'حالة المصباح'], 'يعمل')
+                            door_status = get_col_val(['Door_Status', 'door', 'الباب'], 'مغلق')
+                            feeder = get_col_val(['Feeder', 'مغذى'])
+                            panel_no = get_col_val(['Panel_No', 'panel', 'قاعدة'])
+                            base_depth = get_col_val(['Base_Depth', 'depth', 'عمق'])
+                            flange_size = get_col_val(['Flange_Size', 'flange', 'فلانشة'])
                             
-                        lat = get_col_val(['Latitude', 'lat', 'خط_العرض', 'عرض'])
-                        lng = get_col_val(['Longitude', 'lng', 'طول', 'خط_الطول'])
-                        p_name = get_col_val(['Pole_Name', 'name', 'اسم'])
-                        qr_img = get_col_val(['QR_image', 'qr', 'صورة_الكيو_ار'])
-                        h = get_col_val(['Pole_Height', 'height', 'ارتفاع'])
-                        lamp_type = get_col_val(['Lamp_Type', 'lamp', 'قدرة'])
-                        p_status = get_col_val(['Pole_Status', 'status', 'حالة العمود'], 'سليم')
-                        l_status = get_col_val(['Lamp_Status', 'حالة المصباح'], 'يعمل')
-                        door_status = get_col_val(['Door_Status', 'door', 'الباب'], 'مغلق')
-                        feeder = get_col_val(['Feeder', 'مغذى'])
-                        panel_no = get_col_val(['Panel_No', 'panel', 'قاعدة'])
-                        base_depth = get_col_val(['Base_Depth', 'depth', 'عمق'])
-                        flange_size = get_col_val(['Flange_Size', 'flange', 'فلانشة'])
-                        
-                        data_to_insert.append((p_id, lat, lng, p_name, qr_img, h, lamp_type, p_status, l_status, door_status, feeder, panel_no, base_depth, flange_size))
+                            data_to_insert.append((p_id, lat, lng, p_name, qr_img, h, lamp_type, p_status, l_status, door_status, feeder, panel_no, base_depth, flange_size))
 
-                    if len(data_to_insert) > 0:
-                        cursor.execute('DELETE FROM poles')
-                        conn.commit()
+                        if len(data_to_insert) > 0:
+                            cursor.executemany('''
+                                INSERT OR REPLACE INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', data_to_insert)
+                            conn.commit()
+                            total_inserted += len(data_to_insert)
 
-                        cursor.executemany('''
-                            INSERT OR REPLACE INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', data_to_insert)
-                        conn.commit()
-
-                        flash(f'تم استبدال البيانات بنجاح ورفع {len(data_to_insert)} عمود!', 'success')
+                    if total_inserted > 0:
+                        flash(f'تم استبدال البيانات بنجاح ورفع {total_inserted} عمود!', 'success')
                     else:
                         flash('الملف لا يحتوي على صفوف صالحة أو مطابقة لأسماء الأعمدة!', 'danger')
 
@@ -211,7 +213,7 @@ def dashboard():
                     conn.rollback()
                     return f"<h3 dir='ltr'>EXCEL UPLOAD ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
-        # خيار إضافة وتحديث البيانات (Append)
+        # خيار الإضافة والتحديث (Append) على دفعات
         elif action == 'append_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -220,61 +222,64 @@ def dashboard():
                 file.save(file_path)
                 
                 try:
-                    df = pd.read_excel(file_path, engine='openpyxl')
-                    df.columns = [str(c).strip() for c in df.columns]
-                    
-                    data_to_insert = []
-                    for _, row in df.iterrows():
-                        def get_col_val(col_names, default=''):
-                            for name in col_names:
-                                if name in df.columns:
-                                    val = row[name]
-                                    if pd.notna(val):
-                                        return str(val).strip()
-                            return default
+                    total_processed = 0
+                    chunk_size = 1000
+                    for chunk in pd.read_excel(file_path, engine='openpyxl', chunksize=chunk_size):
+                        chunk.columns = [str(c).strip() for c in chunk.columns]
+                        data_to_insert = []
+                        for _, row in chunk.iterrows():
+                            def get_col_val(col_names, default=''):
+                                for name in col_names:
+                                    if name in chunk.columns:
+                                        val = row[name]
+                                        if pd.notna(val):
+                                            return str(val).strip()
+                                return default
 
-                        p_id = get_col_val(['Pole_ID', 'pole_id', 'id', 'العمود', 'رقم'])
-                        if not p_id or p_id.lower() == 'nan' or p_id == '':
-                            continue
+                            p_id = get_col_val(['Pole_ID', 'pole_id', 'id', 'العمود', 'رقم'])
+                            if not p_id or str(p_id).lower() == 'nan' or p_id == '':
+                                continue
+                                
+                            lat = get_col_val(['Latitude', 'lat', 'خط_العرض', 'عرض'])
+                            lng = get_col_val(['Longitude', 'lng', 'طول', 'خط_الطول'])
+                            p_name = get_col_val(['Pole_Name', 'name', 'اسم'])
+                            qr_img = get_col_val(['QR_image', 'qr', 'صورة_الكيو_ار'])
+                            h = get_col_val(['Pole_Height', 'height', 'ارتفاع'])
+                            lamp_type = get_col_val(['Lamp_Type', 'lamp', 'قدرة'])
+                            p_status = get_col_val(['Pole_Status', 'status', 'حالة العمود'], 'سليم')
+                            l_status = get_col_val(['Lamp_Status', 'حالة المصباح'], 'يعمل')
+                            door_status = get_col_val(['Door_Status', 'door', 'الباب'], 'مغلق')
+                            feeder = get_col_val(['Feeder', 'مغذى'])
+                            panel_no = get_col_val(['Panel_No', 'panel', 'قاعدة'])
+                            base_depth = get_col_val(['Base_Depth', 'depth', 'عمق'])
+                            flange_size = get_col_val(['Flange_Size', 'flange', 'فلانشة'])
                             
-                        lat = get_col_val(['Latitude', 'lat', 'خط_العرض', 'عرض'])
-                        lng = get_col_val(['Longitude', 'lng', 'طول', 'خط_الطول'])
-                        p_name = get_col_val(['Pole_Name', 'name', 'اسم'])
-                        qr_img = get_col_val(['QR_image', 'qr', 'صورة_الكيو_ار'])
-                        h = get_col_val(['Pole_Height', 'height', 'ارتفاع'])
-                        lamp_type = get_col_val(['Lamp_Type', 'lamp', 'قدرة'])
-                        p_status = get_col_val(['Pole_Status', 'status', 'حالة العمود'], 'سليم')
-                        l_status = get_col_val(['Lamp_Status', 'حالة المصباح'], 'يعمل')
-                        door_status = get_col_val(['Door_Status', 'door', 'الباب'], 'مغلق')
-                        feeder = get_col_val(['Feeder', 'مغذى'])
-                        panel_no = get_col_val(['Panel_No', 'panel', 'قاعدة'])
-                        base_depth = get_col_val(['Base_Depth', 'depth', 'عمق'])
-                        flange_size = get_col_val(['Flange_Size', 'flange', 'فلانشة'])
-                        
-                        data_to_insert.append((p_id, lat, lng, p_name, qr_img, h, lamp_type, p_status, l_status, door_status, feeder, panel_no, base_depth, flange_size))
+                            data_to_insert.append((p_id, lat, lng, p_name, qr_img, h, lamp_type, p_status, l_status, door_status, feeder, panel_no, base_depth, flange_size))
 
-                    if len(data_to_insert) > 0:
-                        cursor.executemany('''
-                            INSERT INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(pole_ID) DO UPDATE SET
-                            Latitude=excluded.Latitude,
-                            Longitude=excluded.Longitude,
-                            Pole_Name=excluded.Pole_Name,
-                            QR_image=excluded.QR_image,
-                            Pole_Height=excluded.Pole_Height,
-                            Lamp_Type=excluded.Lamp_Type,
-                            Pole_Status=excluded.Pole_Status,
-                            Lamp_Status=excluded.Lamp_Status,
-                            Door_Status=excluded.Door_Status,
-                            Feeder=excluded.Feeder,
-                            Panel_No=excluded.Panel_No,
-                            Base_Depth=excluded.Base_Depth,
-                            Flange_Size=excluded.Flange_Size
-                        ''', data_to_insert)
-                        conn.commit()
+                        if len(data_to_insert) > 0:
+                            cursor.executemany('''
+                                INSERT INTO poles (pole_ID, Latitude, Longitude, Pole_Name, QR_image, Pole_Height, Lamp_Type, Pole_Status, Lamp_Status, Door_Status, Feeder, Panel_No, Base_Depth, Flange_Size)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(pole_ID) DO UPDATE SET
+                                Latitude=excluded.Latitude,
+                                Longitude=excluded.Longitude,
+                                Pole_Name=excluded.Pole_Name,
+                                QR_image=excluded.QR_image,
+                                Pole_Height=excluded.Pole_Height,
+                                Lamp_Type=excluded.Lamp_Type,
+                                Pole_Status=excluded.Pole_Status,
+                                Lamp_Status=excluded.Lamp_Status,
+                                Door_Status=excluded.Door_Status,
+                                Feeder=excluded.Feeder,
+                                Panel_No=excluded.Panel_No,
+                                Base_Depth=excluded.Base_Depth,
+                                Flange_Size=excluded.Flange_Size
+                            ''', data_to_insert)
+                            conn.commit()
+                            total_processed += len(data_to_insert)
 
-                        flash(f'تمت إضافة وتحديث {len(data_to_insert)} عمود بنجاح!', 'success')
+                    if total_processed > 0:
+                        flash(f'تمت إضافة وتحديث {total_processed} عمود بنجاح!', 'success')
                     else:
                         flash('الملف لا يحتوي على صفوف صالحة للإضافة!', 'danger')
 

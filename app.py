@@ -33,8 +33,10 @@ with app.app_context():
     except Exception as e:
         print(f"Database Error: {e}")
 
+# توحيد المسار والدالة ليطابقا 'dashboard' و 'index' معا لتجنب أي خطأ في الـ url_for
 @app.route('/')
-def index():
+@app.route('/dashboard')
+def dashboard():
     try:
         page = request.args.get('page', 1, type=int)
         per_page = 20
@@ -44,7 +46,11 @@ def index():
     except Exception as e:
         return f"<h3>خطأ في القالب:</h3><pre>{str(e)}</pre>", 500
 
-# مسارات تسجيل الدخول والخروج لتجنب أخطاء url_for الناقصة
+# دالة index كمرجع احتياطي لتجنب أي تطابق عكسي
+@app.route('/index')
+def index():
+    return redirect(url_for('dashboard'))
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     return render_template('login.html')
@@ -53,18 +59,18 @@ def login():
 def admin_logout():
     session.clear()
     flash('تم تسجيل الخروج بنجاح', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():
     if 'file' not in request.files:
         flash('لم يتم اختيار أي ملف', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))
     
     file = request.files['file']
     if file.filename == '':
         flash('اسم الملف فارغ', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))
     
     if file and file.filename.endswith('.csv'):
         uploads_dir = os.path.join(basedir, 'uploads')
@@ -109,10 +115,10 @@ def upload_csv():
             db.session.rollback()
             flash(f'حدث خطأ أثناء معالجة الملف: {str(e)}', 'danger')
         
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))
     else:
         flash('يرجى رفع ملف بصيغة CSV مدعوم بترميز UTF-8', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     app.run(debug=True)

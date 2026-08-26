@@ -41,10 +41,11 @@ def index():
         per_page = 20
         pagination = LightingPole.query.paginate(page=page, per_page=per_page, error_out=False)
         poles = pagination.items
-        return render_template('index.html', poles=poles, pagination=pagination)
+        # تم تعديل اسم الملف ليطابق الملفات الموجودة لديك في مجلد templates
+        return render_template('dashboard.html', poles=poles, pagination=pagination)
     except Exception as e:
-        return f"<h3>خطأ في قالب العرض (Template Error):</h3><pre>{str(e)}</pre>", 500
-
+        return f"<h3>خطأ في القالب:</h3><pre>{str(e)}</pre>", 500
+        
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():
     if 'file' not in request.files:

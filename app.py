@@ -1,19 +1,17 @@
 import os
-import qrcode
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'makkah_lighting_secret_key_2026'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///makkah_lighting.db'
+
+# تصحيح مسار قاعدة البيانات ليعمل بسلاسة على السيرفر المحلي أو المنصات السحابية مثل Render
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'makkah_lighting.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-
-# مجلد تخزين صور الـ QR Codes
-QR_FOLDER = os.path.join('static', 'qrcodes')
-os.makedirs(QR_FOLDER, exist_ok=True)
 
 # جدول قاعدة البيانات الخاص بأعمدة الإنارة
 class LightingPole(db.Model):
@@ -22,7 +20,6 @@ class LightingPole(db.Model):
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     pole_name = db.Column(db.String(100))
-    qr_image = db.Column(db.String(200))
     pole_height = db.Column(db.String(50))
     lamp_type = db.Column(db.String(50))
     pole_status = db.Column(db.String(50))
@@ -32,6 +29,7 @@ class LightingPole(db.Model):
     base_depth = db.Column(db.String(50))
     flange_size = db.Column(db.String(50))
 
+# إنشاء الجداول بطريقة آمنة ومتوافقة مع جميع الإصدارات
 with app.app_context():
     db.create_all()
 
@@ -43,7 +41,7 @@ def index():
     poles = pagination.items
     return render_template('index.html', poles=poles, pagination=pagination)
 
-# مسار رفع ومعالجة ملف الـ CSV على دفعات (Chunks) لمنع انهيار السيرفر واستنزاف الذاكرة
+# مسار رفع ومعالجة ملف الـ CSV
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():
     if 'file' not in request.files:
@@ -56,16 +54,15 @@ def upload_csv():
         return redirect(url_for('index'))
     
     if file and file.filename.endswith('.csv'):
-        file_path = os.path.join('uploads', file.filename)
-        os.makedirs('uploads', exist_ok=True)
+        uploads_dir = os.path.join(basedir, 'uploads')
+        os.makedirs(uploads_dir, exist_ok=True)
+        file_path = os.path.join(uploads_dir, file.filename)
         file.save(file_path)
         
         try:
             total_imported = 0
-            # قراءة ملف الـ CSV على دفعات (مثلاً 1000 صف في كل دفعة) بترميز يدعم العربية
             chunk_size = 1000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size, encoding='utf-8-sig'):
-                # تنظيف الأسماء أو ملء القيم الفارغة لتجنب أخطاء البيانات
                 chunk = chunk.fillna('')
                 
                 for _, row in chunk.iterrows():
@@ -73,16 +70,7 @@ def upload_csv():
                     if not p_id:
                         continue
                     
-                    # التحقق إذا كان العمود موجوداً مسبقاً لتحديثه أو إضافته
                     pole = LightingPole.query.filter_by(pole_id=p_id).first()
-                    
-                    # توليد QR Code لكل عمود إنارة
-                    qr_filename = f"{p_id}.png"
-                    qr_path = os.path.join(QR_FOLDER, qr_filename)
-                    if not os.path.exists(qr_path):
-                        img = qrcode.make(f"Pole ID: {p_id}")
-                        img.save(qr_path)
-                    
                     if not pole:
                         pole = LightingPole(pole_id=p_id)
                         db.session.add(pole)
@@ -90,7 +78,6 @@ def upload_csv():
                     pole.latitude = float(row.get('Latitude', 0.0) or 0.0)
                     pole.longitude = float(row.get('Longitude', 0.0) or 0.0)
                     pole.pole_name = str(row.get('Pole_Name', ''))
-                    pole.qr_image = url_for('static', filename=f'qrcodes/{qr_filename}')
                     pole.pole_height = str(row.get('Pole_Height', ''))
                     pole.lamp_type = str(row.get('Lamp_Type', ''))
                     pole.pole_status = str(row.get('Pole_Status', ''))
@@ -102,10 +89,9 @@ def upload_csv():
                     
                     total_imported += 1
                 
-                # حفظ الدفعة الحالية في قاعدة البيانات لتقليل استهلاك الذاكرة
                 db.session.commit()
             
-            flash(f'تم استيراد ومعالجة {total_imported} عمود إنارة بنجاح على دفعات!', 'success')
+            flash(f'تم استيراد {total_imported} عمود إنارة بنجاح وبسرعة فائقة!', 'success')
         except Exception as e:
             db.session.rollback()
             flash(f'حدث خطأ أثناء معالجة الملف: {str(e)}', 'danger')
@@ -116,4 +102,4 @@ def upload_csv():
         return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True)

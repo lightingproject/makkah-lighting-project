@@ -51,9 +51,6 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST':
-        # معالجة تسجيل الدخول إذا لزم الأمر
-        return redirect(url_for('dashboard'))
     return render_template('login.html')
 
 @app.route('/admin_logout', methods=['GET', 'POST'])
@@ -111,6 +108,7 @@ def upload_csv():
                     pole.lamp_type = str(row.get('Lamp_Type', ''))
                     pole.pole_status = str(row.get('Pole_Status', ''))
                     pole.lamp_status = str(row.get('Lamp_Status', ''))
+                    pole.door_status = str.get(row.get('Door_Status', '')) if hasattr(str, 'get') else str(row.get('Door_Status', ''))
                     pole.door_status = str(row.get('Door_Status', ''))
                     pole.feeder_panel = str(row.get('Feeder_Panel', ''))
                     pole.base_depth = str(row.get('Base_Depth', ''))
@@ -128,9 +126,6 @@ def upload_csv():
         return redirect(url_for('dashboard'))
     else:
         flash('يرجى رفع ملف بصيغة CSV مدعوم', 'danger')
-        return redirect(url_for('dashboard'))
-    else:
-        flash('يرجى رفع ملف بصيغة CSV مدعوم بترميز UTF-8', 'danger')
         return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':

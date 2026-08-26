@@ -3,11 +3,11 @@ import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'makkah_lighting_secret_key_2026'
-
-# ضبط مسار قاعدة البيانات المطلق
+# تحديد مسارات المجلدات بدقة لتعمل على السيرفر السحابي بدون أخطاء
 basedir = os.path.abspath(os.path.dirname(__file__))
+app = Flask(__name__, template_folder=os.path.join(basedir, 'templates'), static_folder=os.path.join(basedir, 'static'))
+
+app.config['SECRET_KEY'] = 'makkah_lighting_secret_key_2026'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'makkah_lighting.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -23,7 +23,6 @@ class LightingPole(db.Model):
     lamp_type = db.Column(db.String(50))
     pole_status = db.Column(db.String(50))
     lamp_status = db.Column(db.String(50))
-    door_status = db.Context = db.Column(db.String(50)) if hasattr(db, 'Column') else None # Fallback
     door_status = db.Column(db.String(50))
     feeder_panel = db.Column(db.String(50))
     base_depth = db.Column(db.String(50))
@@ -33,7 +32,7 @@ with app.app_context():
     try:
         db.create_all()
     except Exception as e:
-        print(f"Database Creation Error: {e}")
+        print(f"Database Error: {e}")
 
 @app.route('/')
 def index():
@@ -44,8 +43,7 @@ def index():
         poles = pagination.items
         return render_template('index.html', poles=poles, pagination=pagination)
     except Exception as e:
-        # إظهار الخطأ التقني مباشرة على الصفحة بدلاً من شاشة 500 المبهمة
-        return f"<h3>حدث خطأ تقني في التطبيق:</h3><pre>{str(e)}</pre>", 500
+        return f"<h3>خطأ في قالب العرض (Template Error):</h3><pre>{str(e)}</pre>", 500
 
 @app.route('/upload_csv', methods=['POST'])
 def upload_csv():

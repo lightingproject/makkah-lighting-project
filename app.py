@@ -17,7 +17,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME, timeout=30.0)
     conn.row_factory = sqlite3.Row
-    # تحسين أداء قواعد البيانات للإدخال السريع للكميات الكبيرة
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
@@ -26,27 +25,41 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # تحديث الجدول ليتطابق مع الأعمدة الجديدة في الصورة
+    # إنشاء الجدول الأساسي إذا لم يكن موجوداً
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS poles (
-            pole_ID TEXT PRIMARY KEY,
-            Latitude TEXT,
-            Longitude TEXT,
-            Pole_Name TEXT,
-            QR_image TEXT,
-            Pole_Height TEXT,
-            Lamp_Type TEXT,
-            Pole_Status TEXT,
-            Lamp_Status TEXT,
-            Door_Status TEXT,
-            Feeder TEXT,
-            Panel_No TEXT,
-            Base_Depth TEXT,
-            Flange_Size TEXT,
-            technician_notes TEXT,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            pole_ID TEXT PRIMARY KEY
         )
     ''')
+    
+    # التأكد من وجود كافة الأعمدة المطلوبة وتحديث الجدول تلقائياً إن لم تكن موجودة
+    cursor.execute("PRAGMA table_info(poles);")
+    existing_columns = [col['name'] for col in cursor.fetchall()]
+    
+    required_columns = {
+        'Latitude': 'TEXT',
+        'Longitude': 'TEXT',
+        'Pole_Name': 'TEXT',
+        'QR_image': 'TEXT',
+        'Pole_Height': 'TEXT',
+        'Lamp_Type': 'TEXT',
+        'Pole_Status': 'TEXT',
+        'Lamp_Status': 'TEXT',
+        'Door_Status': 'TEXT',
+        'Feeder': 'TEXT',
+        'Panel_No': 'TEXT',
+        'Base_Depth': 'TEXT',
+        'Flange_Size': 'TEXT',
+        'technician_notes': 'TEXT',
+        'last_updated': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+    }
+    
+    for col_name, col_type in required_columns.items():
+        if col_name not in existing_columns:
+            try:
+                cursor.execute(f"ALTER TABLE poles ADD COLUMN {col_name} {col_type};")
+            except:
+                pass
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admin_config (
@@ -137,7 +150,7 @@ def dashboard():
             conn.commit()
             flash('تم حذف حساب الفني بنجاح', 'info')
 
-        # 1. خيار استبدال البيانات بالكامل (يدعم 20 ألف صف وأكثر بسرعة فائقة)
+        # خيار استبدال البيانات بالكامل
         elif action == 'upload_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):
@@ -146,7 +159,6 @@ def dashboard():
                 file.save(file_path)
                 
                 try:
-                    # قراءة الإكسل دفعة واحدة باستخدام pandas
                     df = pd.read_excel(file_path, engine='openpyxl')
                     df.columns = [str(c).strip() for c in df.columns]
                     
@@ -199,7 +211,7 @@ def dashboard():
                     conn.rollback()
                     return f"<h3 dir='ltr'>EXCEL UPLOAD ERROR:</h3><pre>{traceback.format_exc()}</pre>", 500
 
-        # 2. خيار إضافة وتحديث البيانات (Append / Merge) بسرعة عالية
+        # خيار إضافة وتحديث البيانات (Append)
         elif action == 'append_excel':
             file = request.files.get('excel_file')
             if file and file.filename.endswith(('.xlsx', '.xls')):

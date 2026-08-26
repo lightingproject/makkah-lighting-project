@@ -33,9 +33,8 @@ with app.app_context():
     except Exception as e:
         print(f"Database Error: {e}")
 
-# توحيد المسار والدالة ليطابقا 'dashboard' و 'index' معا لتجنب أي خطأ في الـ url_for
-@app.route('/')
-@app.route('/dashboard')
+@app.route('/', methods=['GET', 'POST'])
+@app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
     try:
         page = request.args.get('page', 1, type=int)
@@ -46,23 +45,28 @@ def dashboard():
     except Exception as e:
         return f"<h3>خطأ في القالب:</h3><pre>{str(e)}</pre>", 500
 
-# دالة index كمرجع احتياطي لتجنب أي تطابق عكسي
-@app.route('/index')
+@app.route('/index', methods=['GET', 'POST'])
 def index():
     return redirect(url_for('dashboard'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'POST':
+        # معالجة تسجيل الدخول إذا لزم الأمر
+        return redirect(url_for('dashboard'))
     return render_template('login.html')
 
-@app.route('/admin_logout')
+@app.route('/admin_logout', methods=['GET', 'POST'])
 def admin_logout():
     session.clear()
     flash('تم تسجيل الخروج بنجاح', 'success')
     return redirect(url_for('dashboard'))
 
-@app.route('/upload_csv', methods=['POST'])
+@app.route('/upload_csv', methods=['GET', 'POST'])
 def upload_csv():
+    if request.method == 'GET':
+        return redirect(url_for('dashboard'))
+        
     if 'file' not in request.files:
         flash('لم يتم اختيار أي ملف', 'danger')
         return redirect(url_for('dashboard'))
